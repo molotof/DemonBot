@@ -1,0 +1,192 @@
+#!/bin/bash
+### DemonBot ###########################
+# Version 20120325-1 by Scott Garrett #
+# Wintervenom [(at)] archlinux.us     #
+#######################################
+# Dependencies:
+# - bash >= 4.0
+# - socat
+# TODO
+#  background command
+
+version=20120417-1
+shopt -s extglob
+declare -A connectors handlers commands loaded_scripts ircd_features
+
+# Tell the user about stuff.
+#
+# buffer message
+out () {
+    echo "$1 $2" >&2
+}
+
+# buffer type message
+msg () {
+    echo "$1 ${2,,}: $3" >&2
+}
+
+# buffer message
+fatal () {
+    msg $1 fatal "$2"
+    cleanup
+    exit 1
+}
+
+# sender message
+debug () {
+    [[ $debug_mode -gt 0 ]] &&
+        msg debug "$1" "$2"
+}
+
+# Display usage text.
+usage () {
+    cat <<EOF
+DemonBot $version by Scott Garrett
+Wintervenom [(at)] archlinux.us
+
+Usage:
+    ${0##/*} profile_name
+EOF
+    exit 2
+}
+
+# Clean up and exit.
+cleanup () {
+    [[ -f $demonbot_pid ]] &&
+        rm -f "$demonbot_pid"
+    msg core info 'Exiting.'
+    exit
+}
+
+# Load demonbot core functions.
+load_core () {
+    local dir
+    msg $FUNCNAME scan core
+    for dir in "$config_dir" "${config_dirs[@]}"; do
+        if [[ -f "$dir/core" ]]; then
+            msg $FUNCNAME load core
+            . "$dir/core"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Reload DemonBot core functions.
+reload_core () {
+    msg $FUNCNAME unload core
+    type -t "_unload_core" > /dev/null &&
+        $"_unload_core"
+    load_core
+}
+
+
+
+############
+### Main ###
+############
+IFS=$' \t\n\r'
+oifs=$IFS
+config_dir="$HOME/.config/demonbot"
+config_dirs=('/etc/xdg/demonbot' "$0.conf" "$config_dir")
+
+server=$1
+server_dir="$config_dir/servers/$server"
+demonbot_io="$server_dir/io"
+demonbot_pid="$server_dir/lock"
+
+trap cleanup INT TERM HUP
+
+[[ -z $1 ]] &&
+    usage
+
+if [[ -f $demonbot_pid ]]; then
+    old_pid=$(<"$demonbot_pid")
+    kill -0 "$old_pid" 2> /dev/null
+    [[ $? == 0 ]] &&
+        fatal "DemonBot with PID $old_pid is already running this profile."
+    msg core warn 'A lock file was found, but no demonbot instance running.'
+fi
+
+set +f
+mkdir -p "$config_dir"/{running,servers,global}
+
+msg core info 'Loading core functions.'
+load_core ||
+    fatal 'Core functions file not found in any configuration path.'
+
+msg core info 'Loading configuration.'
+source_all "servers/$server/config" ||
+    source_all global/config
+
+[[ -z $hosts ]] &&
+    fatal core "No servers defined for '$server'."
+
+touch "$demonbot_pid"
+
+rm -f "$demonbot_io" 2> /dev/null
+mkfifo "$demonbot_io"
+
+load_script
+
+nick=${nicks:-$USER}
+user=${user:-demonbot}
+name=${name:-$USER}
+mode=${mode:-0}
+reconnect_secs=${reconnect_secs:-10}
+reconnect_auto=${reconnect_auto:-1}
+reconnect_loop=${reconnect_loop:-0}
+altnick_loop=${altnick_lock:-0}
+cmd_char=${cmd_char:-'$'}
+debug_mode=${debug_mode:-1}
+
+msg config hosts "$(printf '%s ' "${hosts[@]}")"
+msg config nicks "$(printf '%s ' "${nicks[@]}")"
+msg config user "$user"
+msg config name "$name"
+msg config mode "$mode"
+msg config reconnect_secs "$reconnect_secs"
+msg config reconnect_auto "$reconnect_auto"
+msg config reconnect_loop "$reconnect_loop"
+msg config altnick_loop "$altnick_loop"
+msg config cmd_char "$cmd_char"
+msg config debug_mode "$debug_mode"
+
+set -f
+
+next_host='pop_host'
+next_nick='pop_nick'
+
+[[ $reconnect_loop -gt 0 ]] &&
+    next_host='rotate_host'
+
+[[ $nick_loop -gt 0 ]] &&
+    next_host='rotate_nick'
+
+while $next_host; do
+    exec 9<&-
+    exec 9<>"$demonbot_io"
+    if connect; then
+        while read line; do
+            [[ -z $line ]] &&
+                continue
+            parse "$line"
+            if [[ $line == '!disconnect' ]]; then
+                unset logged_in
+                break
+            elif [[ $line == '!connect' ]]; then
+                login || msg core error 'Could not log into server.'
+            fi
+        done <&9
+        msg core info 'Disconnected from server.'
+    fi
+    exec 9<&-
+    [[ $user_disconnect || $reconnect_auto -lt 1 ]] &&
+        break
+    if [[ $hosts ]]; then
+        msg core info "Waiting $reconnect_secs seconds to reconnect."
+        sleep $reconnect_secs
+    fi
+done
+set +f
+cleanup

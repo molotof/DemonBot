@@ -1,0 +1,588 @@
+#!/bin/bash
+### DemonBot Core Functions ###########
+# Version 20120317-1 by Scott Garrett #
+# Wintervenom [(at)] archlinux.us     #
+#######################################
+
+debug_mode=1
+
+# Tell the user about stuff.
+#
+# buffer message
+out () {
+    echo "$1 $2" >&2
+}
+
+# buffer type message
+msg () {
+    echo "$1 ${2,,}: $3" >&2
+}
+
+# buffer message
+fatal () {
+    msg $1 fatal "$2"
+    cleanup
+    exit 1
+}
+
+# sender message
+debug () {
+    [[ $debug_mode -gt 0 ]] &&
+        msg "debug $1" "$2" "$3"
+}
+
+format_output () {
+    local line
+    while read line; do
+        msg $2 $1 "$line"
+    done
+}
+
+# Display usage text.
+usage () {
+    cat <<EOF
+DemonBot $version by Scott Garrett
+Wintervenom [(at)] archlinux.us
+
+Usage:
+    ${0##/*} profile_name
+EOF
+    exit 2
+}
+
+
+# Clean up before exit.
+cleanup () {
+    echo >&2
+    if [[ $connection_PID ]]; then
+        msg core info 'Killing connection.'
+        kill -w $connection_PID 2> /dev/null
+    fi
+    msg core info 'Cleaning up.'
+    exec 9<&-
+    [[ -f $demonbot_pid ]] &&
+        rm -f "$demonbot_pid"
+    msg core info 'Exiting.'
+    exit
+}
+
+# List matching files in configuration directories.
+#
+# path [glob]
+paths_of () {
+    local dir glob path=$1
+    shift
+    [[ -z $1 ]] &&
+        set '*'
+    for glob in "$@"; do
+        for dir in "${config_dirs[@]}"; do
+            if [[ -e "$dir/$path" ]]; then
+                find "$dir/$path" -maxdepth 1 -type f -name "$glob" \
+                    -not -iregex ".*.\(swp\|tmp\)\|~*"
+            fi
+        done
+        shift
+    done
+}
+
+# Source all matching files from configuration directories.
+#
+# path [glob]
+source_all () {
+    local file script_name not_loaded=1 IFS=$oifs
+    msg $FUNCNAME scan "$1:${2:-*}"
+    while read file; do
+        not_loaded=0
+        script_name=${file##*/}
+        script_name=${script_name#[[:digit:]]*-}
+        if [[ -z ${loaded_scripts["$script_name"]} ]]; then
+            msg $FUNCNAME load "$script_name"
+            . "$file"
+            loaded_scripts["$script_name"]=$file
+        else
+            msg $FUNCNAME error "Already loaded $script_name."
+        fi
+    done < <(paths_of "$1" "$2" "[0-9]*-$2")
+    return $not_loaded
+}
+
+load_script () {
+    local not_found
+    if [[ $1 ]]; then
+        msg $FUNCNAME info "Loading '$1'."
+    else
+        msg $FUNCNAME info "Loading scripts."
+    fi
+    source_all "servers/$server/scripts" "$1" ||
+        source_all global/scripts "$1" ||
+            not_found=1
+    if [[ $not_found ]]; then
+        if [[ $1 ]]; then
+            msg $FUNCNAME error "'$1' not found."
+        else
+            msg $FUNCNAME info 'No scripts found.'
+        fi
+        return 1
+    else
+        msg $FUNCNAME info 'Done.'
+    fi
+}
+
+unload_script () {
+    local script_name=${1#[[:digit:]]*-} func
+    if [[ -z ${loaded_scripts["$script_name"]} ]]; then
+        msg $FUNCNAME error "Script '$script_name' not loaded."
+        return 1
+    fi
+    msg $FUNCNAME unload "$1"
+    type -t "_unload_$script_name" > /dev/null &&
+        $"_unload_$script_name"
+    if [[ ${loaded_scripts["$script_name.funcs"]} ]]; then
+        for func in ${loaded_scripts["$script_name.funcs"]}; do
+            ftype=${func:0:1}
+            func=${func:1}
+            case "$ftype" in
+                c)
+                    del_connector "$func"
+                    ;;
+                h)
+                    local IFS=':'
+                    func=($func)
+                    local IFS=$oifs
+                    del_handler ${func[@]}
+                    ;;
+                x)
+                    del_command "$func"
+                    ;;
+            esac
+        done
+    fi
+    unset loaded_scripts["$script_name"]
+    unset loaded_scripts["$script_name.funcs"]
+    return
+}
+
+reload_script () {
+    unload_script "$1"
+    load_script "$1"
+}
+
+# Return success or error status based on whether the first string passsed
+# to this function matches one of the others following it.
+#
+# string [string ...]
+in_list () {
+    local item string=$1
+    shift
+    for item in "$@"; do
+        [[ $item == $string ]] &&
+            return
+    done
+    return 1
+}
+
+# Returns strings which do not match <match>.
+#
+# match [string ...]
+del_list () {
+    local item string=$1 found=1
+    [[ -z $2 ]] &&
+        return 1
+    shift
+    for item in "$@"; do
+        if [[ ! $item =~ ^$string$ ]]; then
+            echo "$item"
+        else
+            found=0
+        fi
+    done
+    return $found
+}
+
+# Indirectly execute a DemonBot command or generate an IRC event.
+#
+# cmd [params]
+# [:prefix] event [params] [:data]
+event () {
+    if [[ $1 == 'cmd' ]]; then
+        local IFS=$oifs evt=${2,,}
+        shift 2
+        if [[ $evt =~ ^[[:alnum:]~_.-]+$ ]] && [[ ${commands["$evt"]} ]];
+        then
+            ${commands["$evt"]} "$@"
+        elif [[ ${commands['unknown']} ]]; then
+            ${commands['unknown']} "$evt" "$@"
+        fi
+        [[ ${commands['all']} ]] &&
+            ${commands['all']} "$evt" "$@"
+    elif [[ ${connection[1]} ]]; then
+        if [[ ${1:0:1} == ':' ]]; then
+            local prefix="$1 " evt=${2^^} data=$3
+        else
+            local IFS=' ' evt=${1^^} data=$*
+        fi
+        echo "${prefix}$evt $data" >&9
+    else
+        msg $FUNCNAME error 'Not connected to server.'
+        return 1
+    fi
+}
+
+# Send command to IRC server.
+#
+# command data
+send () {
+    local IFS=' '
+    if [[ ${connection[1]} ]]; then
+        if [[ ${1:0:1} != ':' ]]; then
+            echo "${1^^} ${*:2}" >&${connection[1]}
+        else
+            echo "$1 ${2^^} ${*:3}" >&${connection[1]}
+        fi
+    else
+        msg $FUNCNAME error 'Not connected to server.'
+        return 1
+    fi
+}
+
+# Send login information to IRC server.
+login () {
+    if [[ $pass ]]; then
+        send pass "$pass" || return 1
+    fi
+    send nick "$nick" || return 1
+    send user "$user $mode * :$name" || return 1
+}
+
+# Send a private message.
+#
+# target message [message ...]
+privmsg () {
+    local message target=$1
+    shift
+    for message in "$@"; do
+        msg $FUNCNAME "$target" "<$nick> $message"
+        send privmsg "$target" ":$message"
+    done
+}
+
+# Split hostmasks into parts.
+#
+# hostmask
+split_hostmask () {
+    local IFS=' !@'
+    echo $1
+}
+
+
+# Split a string into words, interperting quoted strings as single words.
+#
+# string
+split_string () {
+    local IFS=$oifs string=$1
+    while :; do
+        if [[ $string =~ '"' ]]; then
+            printf '%s\n' ${string%%\"*}
+            string=${string#*\"}
+            if [[ $string =~ '"' ]]; then
+                echo "${string%%\"*}"
+                string=${string#*\"}
+            fi
+        else
+            [[ $string ]] &&
+                printf '%s\n' $string
+            break
+        fi
+    done
+}
+
+
+# Split one or more strings into words, interperting unescaped quoted strings
+# as single words.
+#
+# string [string ...]
+split_strings () {
+    local string
+    while [[ $1 ]]; do
+        string=$(split_string "${1//\\\"/\\\,}")
+        echo "${string//\\\,/\"}"
+        shift
+    done
+}
+
+# Connect to an IRC server.
+#
+# host [port [connector]]
+connect () {
+    if [[ -z $host ]]; then
+        msg $FUNCNAME error 'Missing host.'
+        return 1
+    fi
+    port=${port:-6667}
+    connector=${connector:-tcp}
+    con_bin=${connectors["$connector"]}
+    if [[ "$(type -t "$con_bin")" != @(function|file) ]]; then
+        msg $FUNCNAME error "$connector: '$con_bin' isn't executable."
+        return 1
+    fi
+    msg $FUNCNAME info "Connecting to ${connector^^} host $host:$port."
+    unset logged_in
+    coproc connection {
+        echo '!connect' >&9
+        $con_bin "$host" "$port" >&9 2> >(format_output log $con_bin)
+        echo '!disconnect' >&9
+    }
+}
+
+# Parse an IRC message.
+#
+# [:prefix] event [params] [:data]
+# TODO: There's a bug lurking up in these there hills.  Kill it!  KILL IT!
+parse () {
+    local src prefix evt handler data=$1
+    if [[ ${1:0:1} == ':' ]]; then
+        read prefix evt data <<< "${1:1}"
+    else
+        prefix=$host
+        read evt data <<< "$1"
+    fi
+    [[ -z $evt ]] &&
+        return
+    evt=${evt,,}
+    if [[ ${data:0:1} == ':' ]]; then
+        data=${data:1}
+    elif [[ $data =~ : ]]; then
+        data=(${data%% :*} "${data#* :}")
+    fi
+    if [[ ${handlers["$evt"]} ]]; then
+        debug $FUNCNAME info "Handling $evt with: ${handlers["$evt"]}"
+        for handler in ${handlers["$evt"]}; do
+            $handler "$evt" "$prefix" "${data[@]}"
+        done
+    elif [[ ${handlers['unknown']} ]]; then
+        debug $FUNCNAME info "Handling $evt with: ${handlers['unknown']}"
+        ${handlers['unknown']} "$evt" "$prefix" "${data[@]}"
+    fi
+    [[ ${handlers['all']} ]] &&
+        ${handlers['all']} "$evt" "$prefix" "${data[@]}"
+}
+
+# Associate a function to a script in the loaded scripts list.
+add_sfunc () {
+    if [[ ${loaded_scripts["$1.funcs"]} ]]; then
+        if in_list "$2" ${loaded_scripts["$1.funcs"]}; then
+            debug $FUNCNAME error "Already associated: $1/$2"
+            return 1
+        fi
+    fi
+    debug $FUNCNAME info "$1/$2"
+    loaded_scripts["$1.funcs"]+="$2 "
+}
+
+# Dissociate a function from a script in the loaded scripts list.
+#
+# script_basename func
+del_sfunc () {
+    local funcs
+    if [[ ${loaded_scripts["$1.funcs"]} ]]; then
+        funcs=${loaded_scripts["$1.funcs"]}
+        loaded_scripts["$1.funcs"]=$(del_list "$2" $funcs)
+        debug $FUNCNAME info "$1/$2"
+        return
+    fi
+    debug $FUNCNAME error "Already disociated: $1/$2"
+    return 1
+}
+
+# Assign an IRC event handler.
+#
+# event handler [depends]
+add_handler () {
+    if [[ $1 == '-p' ]]; then
+        local nounload=1
+        shift
+    fi
+    local evt=${1,,} handler=$2 dep
+    shift 2
+    if [[ ${handlers["$evt"]} ]]; then
+        if in_list "$handler" ${handlers["$evt"]}; then
+            msg $FUNCNAME error "${evt^^} handler '$handler' already assigned."
+            return 1
+        fi
+        for dep in "$@"; do
+            if in_list "$dep" ${handlers["$evt"]}; then
+                continue
+            else
+                msg $FUNCNAME info "${evt^^} handler '$handler' needs '$dep'."
+                source_all ""
+                msg $FUNCNAME error "${evt^^} handler '$handler' needs '$dep'."
+                return 1
+            fi
+        done
+    fi
+    if type -t "${handler%% *}" > /dev/null; then
+        handlers["$evt"]+="$handler "
+        [[ -z $nounload && $script_name ]] &&
+            add_sfunc "$script_name" "h$evt:$handler"
+        msg $FUNCNAME info "Assigned ${evt^^} handler '$handler'."
+    else
+        msg $FUNCNAME error "${evt^^} handler '$handler' isn't executable."
+        return 1
+    fi
+}
+
+# Unregister an IRC event handler.
+#
+# event handler
+del_handler () {
+    local evt=${1,,} funcs ftype
+    if [[ -z ${handlers["$evt"]} ]]; then
+        msg $FUNCNAME error "${evt^^} handler '$2' isn't assigned."
+        return 1
+    fi
+    funcs=${handlers["$evt"]}
+    [[ $script_name ]] &&
+        del_sfunc "$script_name" "h$evt"
+    [[ "$(type -t "$2")" == 'function' ]] &&
+        unset "$2"
+    handlers["$evt"]=$(del_list "$2" $funcs)
+    if [[ $? == 0 ]]; then
+        msg $FUNCNAME info "${evt^^} handler '$2' unset."
+    else
+        msg $FUNCNAME info "${evt^^} handler '$2' isn't assigned."
+    fi
+}
+
+del_all_handlers () {
+    true
+    # Recursive-delete w/ del_handler
+    # set default handlers
+    # Rep for connector, cmds
+}
+
+# Register a connector.
+#
+# name handler
+add_connector () {
+    if [[ $1 == '-p' ]]; then
+        local nounload=1
+        shift
+    fi
+    local name=${1,,}
+    if type -t "${2%% *}" > /dev/null; then
+        connectors["$name"]=$2
+        [[ -z $nounload && $script_name ]] &&
+            add_sfunc "$script_name" "c$name"
+        msg $FUNCNAME info "'$2' assigned to '$name'."
+    else
+        msg $FUNCNAME error "'$2' is not executable."
+        return 1
+    fi
+}
+
+# Unregister a connector.
+#
+# name
+del_connector () {
+    local name=${1,,}
+    [[ $script_name ]] &&
+        del_sfunc "$script_name" "c$name"
+    unset "${connectors["$name"]}"
+    unset connectors["$name"]
+    msg $FUNCNAME info "'$name' unset."
+}
+
+# Assign a command.
+#
+# name handler
+add_command () {
+    if [[ $1 == '-p' ]]; then
+        local nounload=1
+        shift
+    fi
+    local name=${1,,}
+    if type -t "${2%% *}" > /dev/null; then
+        commands["$name"]=$2
+        [[ -z $nounload && $script_name ]] &&
+            add_sfunc "$script_name" "x$name"
+        msg $FUNCNAME info "'$2' assigned to '$name'."
+    else
+        msg $FUNCNAME error "'$2' is not executable."
+        return 1
+    fi
+}
+
+# Unassign a command.
+#
+# name
+del_command () {
+    local name=${1,,}
+    [[ $script_name ]] &&
+        del_sfunc "$script_name" "x$name"
+    unset "${commands["$name"]}"
+    unset commands["$name"]
+    msg $FUNCNAME info "'$name' unset."
+}
+
+# Loop-rotate to the next host in the hosts list.
+#
+# ['prev']
+rotate_host () {
+    local trash
+    read host port connector trash <<< "$hosts"
+    port=${port:-6667}
+    connector=${connector:-tcp}
+    msg $FUNCNAME info "Selected ${connector^^} host $host:$port."
+    if [[ ${#hosts[@]} -gt 1 ]]; then
+        if [[ $1 == 'prev' ]]; then
+            hosts=("${hosts[-1]}" "${hosts[@]:0:((${#hosts[@]}-1))}")
+        else
+            hosts=("${hosts[@]:1}" $hosts)
+        fi
+    fi
+}
+
+# Switch to the next host in the hosts list.
+pop_host () {
+    if [[ -z $hosts ]]; then
+        msg $FUNCNAME error 'No more hosts to switch to.'
+        return 1
+    fi
+    local trash
+    read host port connector trash <<< "$hosts"
+    port=${port:-6667}
+    connector=${connector:-tcp}
+    msg $FUNCNAME info "Selected ${connector^^} host $host:$port."
+    hosts=("${hosts[@]:1}")
+}
+
+# Loop-rotate to the next nick in the nicks list.
+#
+# ['prev']
+rotate_nick () {
+    nick=$nicks
+    msg $FUNCNAME info "Using nick '$nick'."
+    if [[ ${#nicks[@]} -gt 1 ]]; then
+        if [[ $1 == 'prev' ]]; then
+            nicks=("${nicks[-1]}" "${nicks[@]:0:((${#nicks[@]}-1))}")
+        else
+            nicks=("${nicks[@]:1}" $nicks)
+        fi
+    fi
+}
+
+# Switch to the next nick in the nicks list.
+pop_nick () {
+    if [[ -z $nicks ]]; then
+        msg $FUNCNAME error 'No more nicks to switch to.'
+        return 1
+    fi
+    nick=$nicks
+    msg $FUNCNAME info "Using nick '$nick'."
+    nicks=("${nicks[@]:1}")
+}
+
+# Join channels specified in join list.
+join_auto () {
+    event cmd join "${join[@]}"
+}

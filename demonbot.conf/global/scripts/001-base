@@ -1,0 +1,175 @@
+#!/bin/bash
+### DemonBot Base #####################
+# Version 20120317-1 by Scott Garrett #
+# Wintervenom [(at)] archlinux.us     #
+#######################################
+
+##################
+### Connectors ###
+##################
+socat_socks () {
+
+    socks_host=${socks_host:-localhost}
+    socks_port=${socks_port:-9999}
+    socat STDIO SOCKS4A:"$socks_host":"$1":"$2",socksport="$socks_port",crlf
+}
+add_connector socks socat_socks
+
+socat_ssl () {
+    socat STDIO OPENSSL:"$1":"$2",verify=0,crlf
+}
+add_connector ssl socat_ssl
+
+socat_tcp () {
+    socat STDIO TCP:"$1":"$2",crlf
+}
+add_connector tcp socat_tcp
+
+dummy () {
+    echo ':test!tester@localhost PRIVMSG #testing :Hello, world'
+    echo ':test!tester@localhost PRIVMSG #testing :This is a test'
+    echo ':test!tester@localhost PRIVMSG #testing :Of the IRC'
+    echo ':test!tester@localhost PRIVMSG #testing :chat system.'
+    echo ':test!tester@localhost PRIVMSG #testing :Goodbye.'
+    echo ':localhost PING :localhost'
+}
+add_connector test dummy
+
+
+
+################
+### Handlers ###
+################
+h_unknown () {
+    msg $FUNCNAME info "Unhandled: $(printf '%s ' "$@")"
+}
+add_handler unknown h_unknown
+
+h_ping () {
+    send pong $host $2
+}
+add_handler ping h_ping
+
+h_privmsg () {
+    msg $1 $3 "<$2> $4"
+    local text=${4##$'\x03'*([[:digit:],])}
+    if [[ ${text:0:1} == $cmd_char ]]; then
+        text=${text:1}
+        local IFS=' '
+        local sender=($(split_hostmask "$2")) origin=($(split_hostmask "$3"))
+        local IFS='\n'
+        event cmd $(split_strings "$text")
+    fi
+}
+add_handler privmsg h_privmsg
+
+h_rpl_myinfo () {
+    host=$2
+    host_name=$4
+    host_ircd=$5
+    modes_user=$5
+    modes_chan=$6
+    logged_in=1
+    join_auto
+}
+add_handler '004' h_rpl_myinfo
+
+h_rpl_isupport () {
+    ircd_features=()
+    shift 3
+    for feature in "$@"; do
+        local IFS='=' feature=($feature) feature[0]=${feature,,}
+        case "$feature" in
+            prefix)
+                local IFS=')' modes=(${feature[1]/(/})
+                ircd_features["$feature.modes"]=$modes
+                ircd_features["$feature.chars"]=${modes[1]}
+                ;;
+            *)
+                IFS=','
+                ircd_features["$feature"]=${feature[1]:-1}
+                ;;
+        esac
+    done
+}
+add_handler '005' h_rpl_isupport
+
+h_err_nicknameinuse () {
+    [[ $logged_in ]] &&
+        return
+    if $next_nick; then
+        event cmd nick
+    else
+        event cmd quit
+    fi
+}
+add_handler '433' h_err_nicknameinuse
+
+
+
+################
+### Commands ###
+################
+c_nick () {
+    if [[ $1 ]]; then
+        send nick "$1"
+    else
+        send nick "$nick"
+    fi
+}
+add_command nick c_nick
+
+c_quit () {
+    send quit ":$1"
+}
+add_command quit c_quit
+
+c_join () {
+    local IFS=','
+    send join "$*"
+}
+add_command join c_join
+
+c_mode () {
+    send mode "$@"
+}
+add_command mode c_mode
+
+c_load () {
+    load_script "$@"
+}
+add_command load c_load
+
+c_reload () {
+    msg $FUNCNAME info "$*"
+    reload_script "$@"
+}
+add_command reload c_reload
+
+c_unload () {
+    unload_script "$@"
+}
+add_command unload c_unload
+
+c_privmsg () {
+    privmsg "$2" "$3"
+}
+add_command privmsg c_privmsg
+
+c_whoami () {
+    privmsg "$origin" "You are $sender (${sender[1]}) from ${sender[2]}."
+}
+add_command whoami c_whoami
+
+add_command -p load-core load_core
+add_command -p reload-core reload_core
+add_command unknown h_unknown
+
+
+
+##############
+### Unload ###
+##############
+unload_base () {
+    true
+}
