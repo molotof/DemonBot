@@ -1,9 +1,4 @@
 #!/bin/bash
-### DmenIRC Numeric Translation #######
-# Version 20120317-1 by Scott Garrett #
-# Wintervenom [(at)] archlinux.us     #
-#######################################
-
 declare -A numeric=(
     ['001']='rpl_welcome'
     ['002']='rpl_yourhost'

@@ -1,0 +1,448 @@
+#!/bin/bash
+
+# List matching files in configuration directories, skipping temp/backup files.
+# (Note: Path parameter can also be a file.)
+#
+# Parameters:
+#   path [filename_glob ...]
+# Output:
+#   Paths to files at $path in the configuration directories, one per line.
+paths_of () {
+    local dir glob path=$1
+    shift
+    [[ -z $1 ]] && set '*'
+    for glob in "$@"; do
+        for dir in "${config_dirs[@]}"; do
+            if [[ -e "$dir/$path" ]]; then
+                find "$dir/$path" -maxdepth 1 -type f -name "$glob" \
+                    -not -iregex ".*.\(swp\|tmp\|bak\|old\)\|~.*"
+            fi
+        done
+        shift
+    done
+}
+
+# Source matching scripts in configuration directories, skipping temp/backup
+# files. Scripts beginning with digits and a hypen that match the file name
+# glob will also be loaded in order. Path parameter can also be a file.
+#
+# Parameters:
+#   path [filename_glob]
+# Sets Globals:
+#   loaded  Space-delimited list of loaded scripts
+#   skipped Space-delimited list of skipped scripts
+# Returns:
+#   0   One or more scripts loaded successfully
+#   1   No script loaded successfully
+source_all () {
+    local file script_name not_loaded=1 msg IFS=$oifs
+    loaded= skipped=
+    log -c "Scanning '$1' for: ${2:-*}"
+    while read -r file; do
+        script_name=${file##*/}
+        script_name=${script_name#[[:digit:]]*-}
+        if [[ -z ${loaded_scripts["$script_name"]} ]]; then
+            log -c "Loading: $script_name"
+            default_groups='global'
+            . "$file"
+            loaded_scripts["$script_name"]=$file
+            loaded+=" $script_name"
+            not_loaded=0
+        else
+            log -c "Already loaded: $script_name"
+            skipped+=" $script_name"
+        fi
+    done < <(paths_of "$1" "$2" "[0-9]*-$2")
+    return $not_loaded
+}
+
+# Source matching scripts from server and global script directories and report
+# the results (A wrapper around `source_all`).
+#
+# Parameters:
+#   filename_glob
+load_script () {
+    source_all "servers/$server/scripts" "$1" ||
+        source_all global/scripts "$1"
+    if [[ $? != 0 ]]; then
+        if [[ $1 ]]; then
+            log "No scripts found matching: $1"
+        else
+            log "No scripts were found."
+        fi
+        return 1
+    elif [[ $loaded ]]; then
+        msg="Loaded:$loaded"
+    else
+        msg="Nothing loaded"
+    fi
+    [[ $skipped ]] && msg+="; skipped:$skipped"
+    log "$msg"
+}
+
+# Unload a script that was sourced by `source_all` or `load_script`.
+#
+# Parameters:
+#   script_name
+unload_script () {
+    local script_name=${1#[[:digit:]]*-} func dep
+    if [[ ${loaded_scripts["$script_name"]} ]]; then
+        log "Unloading: $1"
+        is_exec -e "_unload_$script_name"
+        if [[ ${loaded_scripts["$script_name:funcs"]} ]]; then
+            for func in ${loaded_scripts["$script_name:funcs"]}; do
+                ftype=${func:0:1}
+                func=${func:2}
+                case "$ftype" in
+                    c)
+                        del_connector "$func"
+                        ;;
+                    h)
+                        local IFS='/'
+                        func=($func)
+                        local IFS=$oifs
+                        del_handler ${func[@]}
+                        ;;
+                    x)
+                        del_command "$func"
+                        ;;
+                esac
+            done
+        fi
+        unset loaded_scripts["$script_name"]
+        unset loaded_scripts["$script_name:funcs"]
+    fi
+    if [[ ${loaded_scripts["$script_name:depof"]} ]]; then
+        for dep in ${loaded_scripts["$script_name:depof"]}; do
+            [[ -z ${loaded_scripts["$dep"]} ]] && continue
+            log -c "$dep depended on $script_name."
+            $FUNCNAME "$dep"
+        done
+        unset loaded_scripts["$script_name:depof"]
+    fi
+    if [[ ${loaded_scripts["$script_name:deps"]} ]]; then
+        for dep in ${loaded_scripts["$script_name:deps"]}; do
+            [[ -z ${loaded_scripts["$dep"]} ]] && continue
+            $FUNCNAME "$dep"
+        done
+        unset loaded_scripts["$script_name:deps"]
+    fi
+    return 0
+}
+
+# Reload a script that was sourced by `source_all` or `load_script`.
+#
+# Parameters:
+#   script_name
+reload_script () {
+    unload_script "$1"
+    load_script "$1"
+}
+
+# Reload all scripts that have been sourced by `source_all` or `load_script`.
+reload_all_scripts () {
+    local script
+    for script in "${!loaded_scripts[@]}"; do
+        [[ $script =~ /\:funcs$/ ]] && continue
+        reload_script "$script"
+    done
+}
+
+# Reload the DemonBot core and reload all scripts.
+reload_core () {
+    local dir
+    is_exec _unload_core; then
+        log -c 'Running core unload.'
+        $"_unload_core"
+    fi
+    log 'Reloading core and all scripts.'
+    no_log_privmsg=1
+    . "$0" -s
+    reload_all_scripts
+    unset no_log_privmsg
+    log "The core has been reloaded successfully."
+    return 1
+}
+
+# Associate a function to a loaded script.
+#
+# Parameters:
+#   script_name funcion
+add_sfunc () {
+    if [[ ${loaded_scripts["$1:funcs"]} ]]; then
+        if in_list "$2" ${loaded_scripts["$1:funcs"]}; then
+            log -c "Already associated: $1/$2"
+            return 1
+        fi
+    fi
+    log -d "Associating: $1/$2"
+    loaded_scripts["$1:funcs"]+="$2 "
+}
+
+# Dissociate a function from a loaded script.
+#
+# Parameters:
+#   script_name funcion
+del_sfunc () {
+    local funcs
+    if [[ ${loaded_scripts["$1:funcs"]} ]]; then
+        funcs=${loaded_scripts["$1:funcs"]}
+        loaded_scripts["$1:funcs"]=$(del_list "$2" $funcs)
+        log -d "Dissociated: $1/$2"
+        return 0
+    fi
+     log -c "Already dissociated: $1/$2"
+    return 1
+}
+
+# Load one or more scripts as deps to the current (or specified) script.
+#
+# Parameters:
+#   [-b depended_by] script [script ...]
+# Flags:
+#   -b= The name of the requiring script (default: $script_name set on load)
+# Return Codes:
+#   0   Successfully loaded all dependencies
+#   1   Failed to load a dependency or no requiring script
+require_script () {
+    local dep opt OPTIND
+    while getopts b: opt; do
+        declare "opt_$opt"="$OPTARG"
+    done
+    shift $((OPTIND - 1))
+    opt_b=${opt_b:-$script_name}
+    if [[ -z $opt_b ]]; then
+        log -c "${FUNCNAME[1]} must specify what script requires dependencies."
+        return 1
+    fi
+    for dep in "$@"; do
+        dep=${dep##*/}
+        dep=${dep#[[:digit:]]*-}
+        if ! in_list "$dep" "${!loaded_scripts[@]}"; then
+            log -c "Attempting to load dependency: $dep"
+            local script_parent=$opt_b
+            if load_script "$dep"; then
+                loaded_scripts["$opt_b:deps"]+="$dep "
+                loaded_scripts["$dep:depof"]+="$opt_b "
+            else
+                log "Failed to load handler '$handler' dependency: $dep"
+                unload_script "$opt_b"
+                return 1
+            fi
+        fi
+    done
+    return 0
+}
+
+# List currently-loaded scripts.
+#
+# Output:
+#   script_name script_filee registered_funcs
+script_list () {
+    for k in "${!loaded_scripts[@]}"; do
+        [[ $k =~ /:funcs$/ ]] && continue
+        echo "$k (${loaded_scripts["$k"]##*/})" \
+            "[${loaded_scripts["$k:funcs"]:0:-1}]"
+    done | sort
+}
+
+# Assign an IRC event handler.
+#
+# Parameters:
+#   event handler
+# Return Codes:
+#   1   Handler isn't executable
+add_handler () {
+    if [[ $1 == '-p' ]]; then
+        local opt_p=1
+        shift
+    fi
+    local event=${1,,}
+    if [[ ${handlers["$event"]} ]]; then
+        if in_list "$2" ${handlers["$event"]}; then
+            log -c "${event^^} handler '$2' already assigned."
+            return 1
+        fi
+    fi
+    if is_exec "${2%% *}"; then
+        handlers["$event"]+="$2 "
+        [[ -z $opt_p && $script_name ]] &&
+            add_sfunc "$script_name" "h:$event/$2"
+        log -c "Assigned ${event^^} handler '$2'."
+        return 0
+    else
+        log -c "${event^^} handler '$2' isn't executable."
+        return 1
+    fi
+}
+
+# Unregister an IRC event handler.
+#
+# Parameters:
+#   event handler
+# Return Codes:
+#   1   Handler isn't assigned
+del_handler () {
+    local event=${1,,} funcs ftype
+    if [[ -z ${handlers["$event"]} ]]; then
+        log -c "${event^^} handler '$2' isn't assigned."
+        return 1
+    fi
+    funcs=${handlers["$event"]}
+    [[ $script_name ]] && del_sfunc "$script_name" "h:$event/$handler"
+    [[ $(cmd_type "$2") == 'function' ]] && unset "$2"
+    handlers["$event"]=$(del_list "$2" $funcs)
+    if [[ $? == 0 ]]; then
+        log -c "${event^^} handler '$2' unset."
+    else
+        log -c "${event^^} handler '$2' isn't assigned."
+    fi
+}
+
+# Unregister all handlers.
+del_all_handlers () {
+    local event handler
+    for event in "${!handlers[@]}"; do
+        for handler in ${handlers["$event"]}; do
+            del_handler "$event" "$handler"
+        done
+    done
+}
+
+# Register a connector.
+#
+# Parameters:
+#   name handler
+# Return Codes:
+#   1   Connector isn't executable.
+add_connector () {
+    if [[ $1 == '-p' ]]; then
+        local nounload=1
+        shift
+    fi
+    local name=${1,,}
+    if is_exec "${2%% *}"; then
+        connectors["$name"]=$2
+        [[ -z $nounload && $script_name ]] &&
+            add_sfunc "$script_name" "c:$name"
+        log -c "'$2' assigned '$name'."
+    else
+        log -c "'$2' is not executable."
+        return 1
+    fi
+}
+
+# Unregister a connector.
+#
+# Parameters:
+#   name
+# Return Codes:
+#   1   Connector isn't assigned
+del_connector () {
+    local name=${1,,}
+    [[ $script_name ]] && del_sfunc "$script_name" "c:$name"
+    unset "${connectors["$name"]}"
+    unset connectors["$name"]
+    log -c "'$name' unset."
+}
+
+# Unregisters all connectors.
+del_all_connectors () {
+    local name
+    for name in "${!connectors[@]}"; do
+        del_connector "$name"
+    done
+}
+
+# Assign a command.
+#
+# Parameters:
+#   name handler [groups]
+# Return Codes:
+#   1   Command isn't executable
+add_command () {
+    if [[ $1 == '-p' ]]; then
+        local nounload=1
+        shift
+    fi
+    local IFS=' ' name=${1,,} c=$2
+    shift 2
+    default_groups=${default_groups:-global}
+    if is_exec "${c%% *}"; then
+        commands["$name"]=$c
+        commands["$name:groups"]=${*:-$default_groups}
+        [[ -z $nounload && $script_name ]] &&
+            add_sfunc "$script_name" "x:$name"
+        log -c "'$c' assigned '$name' for groups: ${*:-$default_groups})"
+    else
+        log -c "'$c' is not executable."
+        return 1
+    fi
+}
+
+# Unassign a command.
+#
+# Parameters:
+#   name
+# Return Codes:
+#   1   Command isn't assigned
+del_command () {
+    local name=${1,,}
+    [[ $script_name ]] &&
+        del_sfunc "$script_name" "x:$name"
+    unset "${commands["$name"]}"
+    unset commands["$name"] commands["$name:groups"]
+    log -c "'$name' unset."
+}
+
+# Unregisters all commands.
+del_all_commands () {
+    local name
+    for name in "${!commands[@]}"; do
+        del_command "$name"
+    done
+}
+
+
+################
+### Commands ###
+################
+
+default_groups='admin'
+
+c_script () {
+    local s prefix
+    if [[ ${1:0:1} == '-' ]]; then
+        case "$1" in
+            -r)
+                prefix='re'
+                ;;
+            -u)
+                prefix='un'
+                ;;
+        esac
+        shift
+    fi
+    for s in "$@"; do
+        if [[ ${s,,} == 'core' ]]; then
+            if [[ $prefix != 'un' ]]; then
+                reload_core
+            else
+                log "Momentarily consider how silly that would be, then use 'reload_core', instead."
+            fi
+        else
+            ${prefix}load_script "$s"
+        fi
+    done
+}
+add_command -p script c_script
+
+c_script_list () {
+    local IFS=$'\n'
+    privmsg "$origin" $(script_list)
+}
+add_command -p script_list c_script_list
+
+add_command -p reload_all_scripts reload_all_scripts
+add_command -p reload_core reload_core
+

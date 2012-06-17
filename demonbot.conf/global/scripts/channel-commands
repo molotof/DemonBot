@@ -1,0 +1,40 @@
+#!/bin/bash
+default_groups='admin'
+
+c_join () {
+    local IFS=','
+    send join "$*"
+}
+add_command join c_join
+
+c_mode () {
+    send mode "$@"
+}
+add_command mode c_mode
+
+c_part () {
+    send part ":$1"
+}
+add_command part c_part
+
+c_op () {
+    local u l c=0
+    if [[ $1 == '-c' ]]; then
+        origin=$2
+        shift 2
+    elif [[ ! ${ircd_features['chantypes']:-'#'} =~ "${origin[0]:0:1}" ]]
+    then
+        log "In what channel (-c)?"
+        return 1
+    fi
+    for u in "$@"; do
+        l+="+o $u"
+        if ((++c == ${ircd_features['modes']:-4})); then
+            send mode "$origin" "$l"
+            l= c=0
+        fi
+    done
+    [[ $l ]] &&
+        send mode "$origin" "$l"
+}
+add_command op c_op

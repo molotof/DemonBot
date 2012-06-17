@@ -1,0 +1,140 @@
+#!/bin/bash
+
+# (Callback of: log) Log a message to the console and send a copy of it to the
+# origin channel or user in a PRIVMSG, unless specified otherwise.
+log_callback () {
+    [[ -z $log_only && $logged_in && $origin ]] && privmsg "$origin" "$1"
+}
+
+# Determine if the first string given matches one of the others following it.
+#
+# Parameters:
+#   match_string [string ...]
+# Return Codes:
+#   0   Match found
+#   1   No match
+in_list () {
+    local item string=$1
+    shift
+    for item in "$@"; do
+        [[ $item == $string ]] && return 0
+    done
+    return 1
+}
+
+# Return the subsequent strings that do not match the first string given.
+#
+# Parameters:
+#   regex [string ...]
+# Output:
+#   Each string not matching first parameter on separate lines.
+# Return Codes:
+#   0   Match found
+#   1   No match.
+del_list () {
+    local item string=$1 found=1
+    [[ -z $2 ]] && return 1
+    shift
+    for item in "$@"; do
+        if [[ $item != $string ]]; then
+            echo "$item"
+        else
+            found=0
+        fi
+    done
+    return $found
+}
+
+# Join parameters by a string or format them into a list.
+#
+# Parameters:
+#   [-l [-c conjunction]] [-d delimiter] item [item ...]
+# Flags:
+#   -l  List items (adding the conjunction word before the final item)
+#   -d= Delimiter string (default: ' ' or, with -l, ',')
+#   -c= Word to use as final conjunction in list ('-e') mode (default: 'and')
+#   -f= `printf  format string for item (default: '%s').
+combine () {
+    local opt OPTIND
+    while getopts ld:c:f: opt; do
+        declare "opt_$opt"="$OPTARG"
+        [[ $opt == 'l' ]] && declare "opt_$opt"=1
+    done
+    shift $((OPTIND - 1))
+    local s=${opt_f:-%s}
+    if [[ $opt_l && $# > 1 ]]; then
+        local d=${opt_d:-,} c=${opt_c:-and}
+        if [[ $# == 2 ]]; then
+            printf -- "$s $c $s\n" "$1" "$2"
+        else
+            printf -- "$s$d " "${@:1:$(($#-1))}"
+            printf -- "$c $s\n" "${!#}"
+        fi
+    else
+        local d=${opt_d:- }
+        local string=$(printf -- "$d$s" "$@")
+        echo "${string:${#d}}"
+    fi
+}
+
+# Split a text's words into lines, interperting double-quoted strings as a
+# single line.
+#
+# Parameters:
+#   text
+# Output:
+#   One line per word or quoted string
+split_string () {
+    local IFS=$oifs
+    local string=$*
+    while :; do
+        if [[ $string =~ '"' ]]; then
+            printf -- '%s\n' ${string%%\"*}
+            string=${string#*\"}
+            if [[ $string =~ '"' ]]; then
+                echo "${string%%\"*}"
+                string=${string#*\"}
+            fi
+        else
+            [[ $string ]] && printf -- '%s\n' $string
+            break
+        fi
+    done
+}
+
+# Split one or more text's words into lines, interperting unescaped double-
+# quoted strings as a single line.
+#
+# Parameters:
+#   text [text ...]
+split_strings () {
+    local string
+    while [[ $1 ]]; do
+        string=$(split_string "${1//\\\"/\\\,}")
+        echo "${string//\\\,/\"}"
+        shift
+    done
+}
+
+# Split hostmasks into parts.
+#
+# Parameters:
+#   nick!user@host
+# Output:
+#   Each part of hostmask, delimited by a space
+split_hostmask () {
+    local IFS=' !@'
+    echo $1
+}
+
+# Pass each line read from stdin to a function or executable.
+#
+# Parameters:
+#   command
+read_do () {
+    local line
+    while read -r line; do
+        "$@" "$line"
+    done
+}
+

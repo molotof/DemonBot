@@ -1,85 +1,152 @@
 #!/bin/bash
 ### DemonBot ###########################
-# Version 20120325-1 by Scott Garrett #
+# Version 20120616-1 by Scott Garrett #
 # Wintervenom [(at)] archlinux.us     #
 #######################################
 # Dependencies:
 # - bash >= 4.0
 # - socat
-# TODO
-#  background command
+# - coreutils: fold, awk
 
-version=20120417-1
-shopt -s extglob
-declare -A connectors handlers commands loaded_scripts ircd_features
+version=20120616-1
+script_name='main'
+debug_mode=1
 
-# Tell the user about stuff.
+# Parse -s (being sourced) and -c (console mode) arguments.
+while getopts sc opt; do
+    declare "opt_$opt"=1
+done
+shift $((OPTIND - 1))
+
+# Disable file globbing.
+set -f
+# Unset all shell options and enable just what we need.
+shopt -u $(shopt | cut -f1)
+shopt -s extquote force_fignore sourcepath
+# Initialize associative arrarys.
+declare -g -A users connectors handlers commands loaded_scripts ircd_features
+
+
+# Return whether first argument is a command/executable.
 #
-# buffer message
-out () {
-    echo "$1 $2" >&2
+# Parameters:
+#   [-e] name [arguments]
+# Flags:
+#   -e  Run name (with arguments) if it is a command/executable.
+is_exec () {
+    if [[ $1 != '-e' ]]; then
+        type -t "$1" >/dev/null
+    else
+        shift
+        type -t "$1" >/dev/null && "$@"
+    fi
 }
 
-# buffer type message
-msg () {
-    echo "$1 ${2,,}: $3" >&2
+# Return the command type of a name (alias to `type -t`).
+#
+# Parameters:
+#   name
+# Outputs:
+#   "...a single word which is one of 'alias', 'keyword', 'function',
+#   'builtin', 'file'," or nothing, if name is not a command/executable.
+cmd_type () {
+    type -t "$1"
 }
 
-# buffer message
-fatal () {
-    msg $1 fatal "$2"
-    cleanup
-    exit 1
-}
-
-# sender message
-debug () {
-    [[ $debug_mode -gt 0 ]] &&
-        msg debug "$1" "$2"
-}
-
-# Display usage text.
+# Display DemonBot usage text.
 usage () {
     cat <<EOF
 DemonBot $version by Scott Garrett
 Wintervenom [(at)] archlinux.us
 
 Usage:
-    ${0##/*} profile_name
+    ${0##/*} [-c] profile_name
 EOF
     exit 2
 }
 
-# Clean up and exit.
+# Log a message to the console.
+# '-o' is assumed if a flag isn't specified.
+# Note: Callback can change flag behavior.
+#
+# Parameters:
+#   flag message
+# Flags:
+#   -o  Log to console (default)
+#   -c  Only log to console
+#   -d  Log to console if $debug_mode is set; implies '-c'
+#   -f  Clean up and exit to shell after logging message
+# Callbacks:
+#   log_callback message
+log () {
+    log_prefix="[$(date +%T)] ${FUNCNAME[1]}"
+    case "$1" in
+        -d)
+            [[ -z $debug_mode ]] && return 1
+            prefix+=' DEBUG'
+            ;&
+        -c)
+            local log_only=1
+            ;&
+        -o)
+            shift
+            ;;
+        -f)
+            local is_fatal=1 prefix+=' FATAL'
+            shift
+            ;;
+    esac
+    # Send to stderr so logging messages don't screw up functions feeding the
+    # stdout to someone else's stdin.
+    echo "$log_prefix: $1" >&2
+    is_exec -e log_callback "$1"
+    [[ $is_fatal ]] && cleanup
+}
+
+# Clean up before exit.
 cleanup () {
-    [[ -f $demonbot_pid ]] &&
-        rm -f "$demonbot_pid"
-    msg core info 'Exiting.'
+    echo >&2
+    if [[ $connection_PID ]]; then
+        log -c 'Disconnecting from the server. Goodbye, cruel world!'
+        kill -w $connection_PID 2> /dev/null
+    fi
+    log -c 'Cleaning up...'
+    exec 9<&-
+    [[ -f $demonbot_pid ]] && rm -f "$demonbot_pid"
     exit
 }
 
-# Load demonbot core functions.
-load_core () {
-    local dir
-    msg $FUNCNAME scan core
-    for dir in "$config_dir" "${config_dirs[@]}"; do
-        if [[ -f "$dir/core" ]]; then
-            msg $FUNCNAME load core
-            . "$dir/core"
-            return 0
-        fi
-    done
-    return 1
+# List files found in core script directory, skipping temp/backup files.
+#
+# Parameters:
+#   root_directory
+# Output:
+#   Paths to files in core directory, one per line.
+core_scripts () {
+    [[ ! -d "$1/core" ]] && return 1
+    find "$1/core" -maxdepth 1 -type f \
+        -not -iregex '.*.\(swp\|tmp\|bak\|old\)\|~.*'
 }
 
-# Reload DemonBot core functions.
-reload_core () {
-    msg $FUNCNAME unload core
-    type -t "_unload_core" > /dev/null &&
-        $"_unload_core"
-    load_core
-}
-
+# Load/reload the rest of the core.
+if is_exec _unload_core; then
+    log -c 'Unloading core...'
+    $"_unload_core"
+fi
+log -c 'Looking for core scripts...'
+unset core_loaded
+for dir in "$config_dir" "${config_dirs[@]}"; do
+    if [[ -d "$dir/core" ]]; then
+        while read -r file; do
+            log -c "Sourcing: ${file##*/}"
+            . "$file"
+        done < <(core_scripts "$dir")
+        core_loaded=1
+    fi
+done
+[[ -z $core_loaded ]] &&
+    log -f 'FATAL: Core scripts not found in configuration directories.'
+log -c 'Core scripts loaded.'
 
 
 ############
@@ -89,44 +156,46 @@ IFS=$' \t\n\r'
 oifs=$IFS
 config_dir="$HOME/.config/demonbot"
 config_dirs=('/etc/xdg/demonbot' "$0.conf" "$config_dir")
-
-server=$1
+server=${server:-$1}
 server_dir="$config_dir/servers/$server"
+users_dir="$server_dir/users"
+users_file="$server_dir/passwd"
+tmp_dir="$server_dir/tmp"
 demonbot_io="$server_dir/io"
 demonbot_pid="$server_dir/lock"
 
+[[ $opt_s ]] && return 0
+
 trap cleanup INT TERM HUP
 
-[[ -z $1 ]] &&
-    usage
+[[ -z $1 ]] && usage
 
 if [[ -f $demonbot_pid ]]; then
     old_pid=$(<"$demonbot_pid")
     kill -0 "$old_pid" 2> /dev/null
     [[ $? == 0 ]] &&
-        fatal "DemonBot with PID $old_pid is already running this profile."
-    msg core warn 'A lock file was found, but no demonbot instance running.'
+        log -f "DemonBot PID $old_pid is already running this profile."
+    log -c 'Hmm. A lock file was found, but no DemonBot is running.'
 fi
 
 set +f
 mkdir -p "$config_dir"/{running,servers,global}
+set -f
 
-msg core info 'Loading core functions.'
-load_core ||
-    fatal 'Core functions file not found in any configuration path.'
-
-msg core info 'Loading configuration.'
+log -c 'Reading configuration.'
 source_all "servers/$server/config" ||
     source_all global/config
 
 [[ -z $hosts ]] &&
-    fatal core "No servers defined for '$server'."
+    log -f "No hosts are defined for '$server'."
 
+mkdir -p "$tmp_dir" "$users_dir"
 touch "$demonbot_pid"
 
 rm -f "$demonbot_io" 2> /dev/null
 mkfifo "$demonbot_io"
 
+log -c 'Loading scripts.'
 load_script
 
 nick=${nicks:-$USER}
@@ -139,54 +208,36 @@ reconnect_loop=${reconnect_loop:-0}
 altnick_loop=${altnick_lock:-0}
 cmd_char=${cmd_char:-'$'}
 debug_mode=${debug_mode:-1}
+master_key=$(sha1sum <<< "$RANDOM$(date +%s%N)" | cut -d' ' -f1)
+next_host=${next_host:-pop_host}
+next_nick=${next_nick:-pop_nick}
 
-msg config hosts "$(printf '%s ' "${hosts[@]}")"
-msg config nicks "$(printf '%s ' "${nicks[@]}")"
-msg config user "$user"
-msg config name "$name"
-msg config mode "$mode"
-msg config reconnect_secs "$reconnect_secs"
-msg config reconnect_auto "$reconnect_auto"
-msg config reconnect_loop "$reconnect_loop"
-msg config altnick_loop "$altnick_loop"
-msg config cmd_char "$cmd_char"
-msg config debug_mode "$debug_mode"
+[[ $reconnect_loop -gt 0 ]] && next_host='rotate_host'
+[[ $nick_loop -gt 0 ]] && next_host='rotate_nick'
+echo "$master_key" > "$server_dir/master-key"
 
-set -f
+log -c "Hosts: $(combine "${hosts[@]}")"
+log -c "Nicks: $(combine ${nicks[@]})"
+log -c "  Loop alts: $altnick_loop"
+log -c "User: $user"
+log -c "Name: $name"
+log -c "Mode: $mode"
+log -c "Auto reconnect: $reconnect_auto"
+log -c "  Delay: $reconnect_secs"
+log -c "  Loop: $reconnect_loop"
+log -c "Command character: $cmd_char"
+log -c "Debug mode: $debug_mode"
+log -c "Temp directory: $tmp_dir"
+log -c "Master key: $master_key"
 
-next_host='pop_host'
-next_nick='pop_nick'
-
-[[ $reconnect_loop -gt 0 ]] &&
-    next_host='rotate_host'
-
-[[ $nick_loop -gt 0 ]] &&
-    next_host='rotate_nick'
-
-while $next_host; do
-    exec 9<&-
-    exec 9<>"$demonbot_io"
-    if connect; then
-        while read line; do
-            [[ -z $line ]] &&
-                continue
-            parse "$line"
-            if [[ $line == '!disconnect' ]]; then
-                unset logged_in
-                break
-            elif [[ $line == '!connect' ]]; then
-                login || msg core error 'Could not log into server.'
-            fi
-        done <&9
-        msg core info 'Disconnected from server.'
-    fi
-    exec 9<&-
-    [[ $user_disconnect || $reconnect_auto -lt 1 ]] &&
-        break
-    if [[ $hosts ]]; then
-        msg core info "Waiting $reconnect_secs seconds to reconnect."
-        sleep $reconnect_secs
-    fi
-done
+if [[ -z $opt_c ]]; then
+    connect
+else
+    while :; do
+        read -e -p 'DemonBot> ' command
+        echo
+        eval "$command"
+    done
+fi
 set +f
 cleanup

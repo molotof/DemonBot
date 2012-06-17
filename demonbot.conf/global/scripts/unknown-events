@@ -1,0 +1,7 @@
+#!/bin/bash
+h_unknown () {
+    log -c "Unhandled: $(printf '%s ' "$@")"
+}
+add_handler unknown h_unknown
+add_command unknown h_unknown
+

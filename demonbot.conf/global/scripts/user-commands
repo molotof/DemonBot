@@ -1,0 +1,19 @@
+#!/bin/bash
+default_groups='admin'
+
+c_quit () {
+    local IFS=' '
+    send quit ":$*"
+    user_disconnect=1
+}
+add_command quit c_quit
+
+c_nick () {
+    if [[ $1 ]]; then
+        send nick "$1"
+    else
+        send nick "$nick"
+    fi
+}
+add_command nick c_nick
+

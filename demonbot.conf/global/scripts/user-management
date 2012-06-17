@@ -1,0 +1,99 @@
+#!/bin/bash
+default_groups='admin'
+
+c_useradd () {
+    local name=${1,,}
+    local home="$users_dir/$name"
+    if [[ -d "$home" ]]; then
+        log 'Someone is using that name, already.'
+        return 1
+    fi
+    if check_clearance ${sender[@]} admin; then
+        update_user "$@"
+    else
+        update_user "$1" "$2"
+    fi
+    if [[ $? == 0 ]]; then
+        log "User added successfully."
+    else
+        log "There was a problem adding the user to my database."
+    fi
+}
+add_command useradd c_useradd
+
+c_userdel () {
+    local name=${1,,}
+    local home="$users_dir/$name"
+    if [[ ! -d "$home" ]]; then
+        log 'I do not know who that is.'
+        return 1
+    fi
+    rm -rf "$home/$name"
+    log "User deleted."
+}
+add_command useradd c_useradd
+
+c_groupadd () {
+    local name=${1,,}
+    local home="$users_dir/$name"
+    if [[ ! -d "$home" ]]; then
+        log 'I do not know who that is.'
+        return 1
+    fi
+    shift
+    printf '%s\n' "$@" >> "$home/groups"
+    sort -u "$home/groups" > "$home/groups.new"
+    mv "$home/groups.new" "$home/groups"
+    log "User added to groups."
+}
+add_command groupadd c_groupadd
+
+c_groupdel () {
+    local name=${1,,}
+    local home="$users_dir/$name"
+    if [[ ! -d "$home" ]]; then
+        log 'I do not know who that is.'
+        return 1
+    fi
+    shift
+    grep -vFf <(printf '%s\n' "$@")  "$home/groups" > "$home/groups.new"
+    mv "$home/groups.new" "$home/groups"
+    log "User removed from groups."
+}
+add_command groupdel c_groupdel
+
+c_master_override () {
+    origin=(${sender[@]})
+    if [[ $1 != $master_key ]]; then
+        log 'Incorrect master key.'
+        return 1
+    fi
+    users["${sender[1]}@${sender[2]}"]="${sender,,} root"
+    log 'You now have master access to my core. ;)'
+}
+add_command master_override c_master_override global
+
+c_identify () {
+    local name=${1,,}
+    local home="$users_dir/$name"
+    if [[ ! -f "$home/login-key" ]]; then
+        log 'I do not know who that is.'
+        return 1
+    fi
+    local key=$(sha1sum <<< "$2" | cut -d' ' -f1)
+    local correct_key=$(<"$home/login-key")
+    if [[ $key != $correct_key ]]; then
+        log 'Incorrect password.'
+        return 1
+    fi
+    add_user_mask "$name" "$sender_mask"
+    if identify_user "$name"; then
+        log "Hello, $name. You have been successfully identified."
+        return 0
+    else
+
+        log "You could not be identified."
+        return 1
+    fi
+}
+add_command identify c_identify global

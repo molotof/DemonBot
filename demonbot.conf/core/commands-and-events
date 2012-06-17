@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Execute an assigned command by name.
+#
+# Parameters:
+#   [-p] [-b] command [param ...]
+# Flags:
+#   -p  Check user clearance beore running
+#   -b  Run command in background
+run_cmd () {
+    local cmd=${1,,} opt OPTIND
+    [[ $cmd =~ ^[[:alnum:]~_.-]+$ && ${commands["$cmd"]} ]] || return 1
+    while getopts pb opt; do
+        declare "opt_$opt"=1
+    done
+    shift $((OPTIND - 1))
+    if [[ $opt_p ]] && ! check_clearance ${commands["$cmd:groups"]}; then
+        log "You are not powerful enough to use this command."
+        return 1
+    fi
+    if [[ $opt_b ]]; then
+        ${commands["$cmd"]} "$@"
+    else
+        ${commands["$cmd"]} "$@" &
+    fi
+}
+
+# Indirectly execute a command or generate an IRC event.
+#
+# Parameters (IRC event):
+#   [-b] [:prefix] event [params] [:trailing]
+# Parameters (command):
+#   -c [-b] [-p] [params]
+# Flags:
+#   -p  Check permissions and only execute
+#   -b  Run command in background
+event () {
+    local opt OPTIND
+    while getopts cpb opt; do
+        declare "opt_$opt"="-$opt"
+    done
+    shift $((OPTIND - 1))
+    if [[ $opt_c ]]; then
+        local IFS=$oifs event=$1
+        shift
+        run_cmd $opt_p $opt_b "$event" "$@" ||
+            run_cmd $opt_p $opt_b unknown "$@"
+        run_cmd $opt_p $opt_b all "$@"
+    elif [[ ${connection[1]} ]]; then
+        if [[ ${1:0:1} == ':' ]]; then
+            local prefix="$1 " event=${2^^} data=$3
+        else
+            local IFS=' '
+            local event=${1^^} data=$*
+        fi
+        echo "${prefix}$event $data" >&9
+    else
+        log -c 'Not connected to server.'
+        return 1
+    fi
+}
+
