@@ -15,7 +15,7 @@ paths_of () {
         for dir in "${config_dirs[@]}"; do
             if [[ -e "$dir/$path" ]]; then
                 find "$dir/$path" -maxdepth 1 -type f -name "$glob" \
-                    -not -iregex ".*.\(swp\|tmp\|bak\|old\)\|~.*"
+                    -not -iregex ".*.\(swp\|tmp\|bak\|old\)\|~.*" | sort
             fi
         done
         shift
@@ -139,11 +139,20 @@ reload_script () {
     load_script "$1"
 }
 
+# Unload all scripts that have been sourced by `source_all` or `load_script`.
+unload_all_scripts () {
+    local script
+    for script in "${!loaded_scripts[@]}"; do
+        [[ $script =~ ':' ]] && continue
+        unload_script "$script"
+    done
+}
+
 # Reload all scripts that have been sourced by `source_all` or `load_script`.
 reload_all_scripts () {
     local script
     for script in "${!loaded_scripts[@]}"; do
-        [[ $script =~ /\:funcs$/ ]] && continue
+        [[ $script =~ ':' ]] && continue
         reload_script "$script"
     done
 }
@@ -151,15 +160,24 @@ reload_all_scripts () {
 # Reload the DemonBot core and reload all scripts.
 reload_core () {
     local dir
-    is_exec _unload_core; then
+    if is_exec _unload_core; then
         log -c 'Running core unload.'
         $"_unload_core"
     fi
     log 'Reloading core and all scripts.'
-    no_log_privmsg=1
-    . "$0" -s
-    reload_all_scripts
-    unset no_log_privmsg
+    log_only=1
+    local script reload_scripts=("${!loaded_scripts[@]}") opt_s=1
+    unload_all_scripts
+    del_all_handlers
+    del_all_commands
+    del_all_connectors
+    . "$0"
+    unset opt_s
+    for s in "${reload_scripts[@]}"; do
+        [[ $s =~ ':' ]] && continue
+        load_script "$s"
+    done
+    unset log_only
     log "The core has been reloaded successfully."
     return 1
 }
@@ -240,7 +258,7 @@ require_script () {
 #   script_name script_filee registered_funcs
 script_list () {
     for k in "${!loaded_scripts[@]}"; do
-        [[ $k =~ /:funcs$/ ]] && continue
+        [[ $k =~ ':' ]] && continue
         echo "$k (${loaded_scripts["$k"]##*/})" \
             "[${loaded_scripts["$k:funcs"]:0:-1}]"
     done | sort
@@ -373,7 +391,7 @@ add_command () {
         commands["$name:groups"]=${*:-$default_groups}
         [[ -z $nounload && $script_name ]] &&
             add_sfunc "$script_name" "x:$name"
-        log -c "'$c' assigned '$name' for groups: ${*:-$default_groups})"
+        log -c "'$c' assigned '$name' for groups: ${*:-$default_groups}"
     else
         log -c "'$c' is not executable."
         return 1
@@ -399,7 +417,7 @@ del_command () {
 del_all_commands () {
     local name
     for name in "${!commands[@]}"; do
-        del_command "$name"
+        [[ $name =~ ':' ]] || del_command "$name"
     done
 }
 

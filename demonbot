@@ -1,6 +1,6 @@
 #!/bin/bash
 ### DemonBot ###########################
-# Version 20120616-1 by Scott Garrett #
+# Version 20120618-1 by Scott Garrett #
 # Wintervenom [(at)] archlinux.us     #
 #######################################
 # Dependencies:
@@ -8,13 +8,13 @@
 # - socat
 # - coreutils: fold, awk
 
-version=20120616-1
+version=20120618-1
 script_name='main'
 debug_mode=1
 
 # Parse -s (being sourced) and -c (console mode) arguments.
 while getopts sc opt; do
-    declare "opt_$opt"=1
+    declare -g "opt_$opt"=1
 done
 shift $((OPTIND - 1))
 
@@ -80,6 +80,7 @@ EOF
 #   log_callback message
 log () {
     log_prefix="[$(date +%T)] ${FUNCNAME[1]}"
+    local prefix is_fatal
     case "$1" in
         -d)
             [[ -z $debug_mode ]] && return 1
@@ -92,7 +93,7 @@ log () {
             shift
             ;;
         -f)
-            local is_fatal=1 prefix+=' FATAL'
+            is_fatal=1 prefix+=' FATAL'
             shift
             ;;
     esac
@@ -125,9 +126,27 @@ cleanup () {
 core_scripts () {
     [[ ! -d "$1/core" ]] && return 1
     find "$1/core" -maxdepth 1 -type f \
-        -not -iregex '.*.\(swp\|tmp\|bak\|old\)\|~.*'
+        -not -iregex '.*.\(swp\|tmp\|bak\|old\)\|~.*' | sort
 }
 
+
+
+############
+### Main ###
+############
+IFS=$' \t\n\r'
+oifs=$IFS
+config_dir="$HOME/.config/demonbot"
+config_dirs=('/etc/xdg/demonbot' "$0.conf" "$config_dir")
+server=${server:-$1}
+server_dir="$config_dir/servers/$server"
+users_dir="$server_dir/users"
+users_file="$server_dir/passwd"
+tmp_dir="$server_dir/tmp"
+demonbot_io="$server_dir/io"
+demonbot_pid="$server_dir/lock"
+
+trap cleanup INT TERM HUP
 # Load/reload the rest of the core.
 if is_exec _unload_core; then
     log -c 'Unloading core...'
@@ -148,25 +167,7 @@ done
     log -f 'FATAL: Core scripts not found in configuration directories.'
 log -c 'Core scripts loaded.'
 
-
-############
-### Main ###
-############
-IFS=$' \t\n\r'
-oifs=$IFS
-config_dir="$HOME/.config/demonbot"
-config_dirs=('/etc/xdg/demonbot' "$0.conf" "$config_dir")
-server=${server:-$1}
-server_dir="$config_dir/servers/$server"
-users_dir="$server_dir/users"
-users_file="$server_dir/passwd"
-tmp_dir="$server_dir/tmp"
-demonbot_io="$server_dir/io"
-demonbot_pid="$server_dir/lock"
-
 [[ $opt_s ]] && return 0
-
-trap cleanup INT TERM HUP
 
 [[ -z $1 ]] && usage
 

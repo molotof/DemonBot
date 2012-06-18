@@ -1,6 +1,6 @@
 #!/bin/bash
 c_whoami () {
-    read name groups < <(identify_user ${sender[@]})
+    identify_user
     privmsg "$origin" "You are $sender (${sender[1]}) from ${sender[2]}. You are recognized as user $name and are in the following groups: $groups"
 }
 add_command whoami c_whoami
