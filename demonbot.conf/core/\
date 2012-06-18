@@ -15,7 +15,7 @@ load_users () {
     while read -r h data; do
         [[ $data ]] && users["$h"]=$data
     done < "$users_file"
-    log -c 'Read list of known users from disk.'
+    log 'Read list of known users from disk.'
 }
 
 # Write the list of known users from to known users savefile.
@@ -29,7 +29,7 @@ save_users () {
     for h in "${!users[@]}"; do
         echo $h ${users["$h"]}
     done > "$users_file" || return 1
-    log -c 'Wrote list of known users to disk.'
+    log 'Wrote list of known users to disk.'
 }
 
 # Return whether or not a user exists.
@@ -280,4 +280,4 @@ c_passwd () {
 add_command passwd c_passwd global
 
 load_users
-_unload_core-save_users () { save_users; }
+

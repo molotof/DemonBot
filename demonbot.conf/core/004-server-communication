@@ -264,6 +264,7 @@ parser_loop () {
         [[ -z $event ]] && continue
         event=${event,,}
         IFS=':' read -r args line <<< "$line"
+        IFS=$oifs
         if [[ ${handlers["$event"]} ]]; then
             log -d "Handling $event with: ${handlers["$event"]}"
             for handler in ${handlers["$event"]}; do

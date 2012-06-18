@@ -20,6 +20,7 @@ run_cmd () {
         return 1
     fi
     shift
+    IFS=$oifs
     if [[ -z $opt_b ]]; then
         ${commands["$cmd"]} "$@"
     else

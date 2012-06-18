@@ -159,6 +159,8 @@ reload_all_scripts () {
 
 # Reload the DemonBot core and reload all scripts.
 reload_core () {
+    IFS=$' \t\n\r'
+    oifs=$IFS
     local dir
     if is_exec _unload_core; then
         log -c 'Running core unload.'
@@ -179,7 +181,7 @@ reload_core () {
     done
     unset log_only
     log "The core has been reloaded successfully."
-    return 1
+    return 0
 }
 
 # Associate a function to a loaded script.
