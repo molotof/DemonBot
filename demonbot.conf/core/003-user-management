@@ -156,18 +156,22 @@ default_groups='admin'
 
 c_useradd () {
     local name home
-    if ! is_user "$1"; then
-        log 'Someone else is already using that name.'
-        return 1
-    elif check_clearance admin; then
-        update_user "$@"
+    if [[ $origin == $sender ]]; then
+        if is_user "$1"; then
+            log 'Someone else is already using that name.'
+            return 1
+        elif check_clearance admin; then
+            update_user "$@"
+        else
+            update_user "$1" "$2"
+        fi
+        if [[ $? == 0 ]]; then
+            log "User added successfully."
+        else
+            log "There was a problem adding the user to the database."
+        fi
     else
-        update_user "$1" "$2"
-    fi
-    if [[ $? == 0 ]]; then
-        log "User added successfully."
-    else
-        log "There was a problem adding the user to the database."
+        log "Why are you trying to set this in the channel?! Send me a query! And don't use the same password!"
     fi
 }
 add_command useradd c_useradd global
@@ -248,11 +252,17 @@ c_identify () {
     else
         log "You're not supposed to tell me this in the channel! Send me a query next time!"
         if is_user "$1"; then
-            new_pass=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c50)
-            update_user "$1" "$new_pass"
-            whisper
-            log "I changed your password to: $new_pass"
-            log "After you identify, change this with: passwd $new_pass NEW_PASSWORD"
+            local key=$(sha1sum <<< "$2" | cut -d' ' -f1)
+            local correct_key=$(<"$home/login-key")
+            local new_pass=$(cat /dev/urandom | tr -dc '[:alnum:]' | head -c50)
+            if [[ $key == $correct_key ]]; then
+                update_user "$1" "$new_pass"
+                whisper
+                log "I changed your password to: $new_pass"
+                log "After you identify, change this with: passwd $new_pass NEW_PASSWORD"
+            else
+                log "The password was incorrect. You should change it after you identify. Preferably right now."
+            fi
         fi
     fi
 }

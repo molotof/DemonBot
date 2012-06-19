@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# For now, until we add dependency handling for external stuff in Demonbot.
+for b in jsawk js html2text; do
+    if ! is_exec "$b"; then
+        log -c "This script requires dependency: $b."
+        return 1
+    fi
+done
+
+curl () { command curl --connect-timeout 5 "$@"; }
+h2t () { html2text -width -1; }
+
+urlencode () {
+    local n c
+    for ((n=0; n<${#1}; n++)); do
+        c=${1:$n:1}
+        if [[ $c == [[:alnum:]] ]]; then
+            echo -n "$c"
+        else
+            printf -- '%%%02X' \'"$c"
+        fi
+    done
+}
+
+http_request () {
+    [[ -z $1 ]] && return 1
+    local url=$1 pair data_args=() IFS=$'\n'
+    shift
+    for pair in "$@"; do
+        data_args+=(--data-urlencode "$pair")
+    done
+    curl -s --get "${data_args[@]}" "$url"
+}
+return 0

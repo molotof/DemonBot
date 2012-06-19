@@ -438,7 +438,11 @@ join_auto () {
 # Modifies Globals:
 #   $origin     Set to sender.
 whisper () {
-    origin=(${sender[@]})
+    if [[ $sender ]]; then
+        [[ $origin != $sender  ]] &&
+            action $origin "whispers something to $sender."
+        origin=(${sender[@]})
+    fi
 }
 
 
@@ -471,10 +475,12 @@ h_privmsg () {
     local is_command text=${4##$'\x03'*([[:digit:],])}
     local sender=($(split_hostmask "$2")) origin=($(split_hostmask "$3"))
     local sender_mask=${2#*'!'}
+
     if [[ ${text:0:1} == $cmd_char ]]; then
         is_command=1 text=${text:1}
-    elif [[ ${text:0:${#nick}} == $nick ]]; then
-        is_command=1 text=${text#*[ :,]}
+    else
+        local word=${text:0:${#nick}}
+        [[ ${word,,} == ${nick,,} ]] && is_command=1 text=${text#*[ :,]}
     fi
     [[ $origin == $nick ]] &&
         is_command=1 origin=(${sender[@]})
@@ -492,8 +498,11 @@ h_ping () {
 add_handler ping h_ping
 
 h_nick () {
-    log -c "$nick nick was changed to $2."
-    nick=$2
+    local old=$(split_hostmak "$2") new=$(split_hostmask "$3")
+    if [[ $old == $nick ]]; then
+        log -c "Bot nick was changed to $new."
+        nick=$new
+    fi
 }
 add_handler 'nick' h_nick
 
@@ -533,8 +542,8 @@ h_rpl_isupport () {
             prefix)
                 IFS=')'
                 params=(${feature[1]/'('/})
-                ircd_features["$feature.0"]=$params
-                ircd_features["$feature.1"]=${params[1]}
+                ircd_features["$feature:0"]=$params
+                ircd_features["$feature:1"]=${params[1]}
                 ;;
             *)
                 if [[ ${feature[1]} ]]; then
@@ -545,9 +554,9 @@ h_rpl_isupport () {
                     for p in "${params[@]}"; do
                         if [[ $p =~ ':' ]]; then
                             p=($p)
-                            ircd_features["$feature.${p[0]}"]=${p[1]}
+                            ircd_features["$feature:${p[0]}"]=${p[1]}
                         elif (( ${#params[@]} > 1 )); then
-                            ircd_features["$feature.$index"]=$p
+                            ircd_features["$feature:$index"]=$p
                         else
                             ircd_features["$feature"]=$p
                         fi
@@ -589,7 +598,7 @@ c_whisper () {
     origin=(${sender[@]})
     shift
     local IFS=$oifs
-    event -c cmd "$@"
+    event -c "$@"
 }
 add_command -p whisper c_whisper
 

@@ -4,4 +4,4 @@ c_whoami () {
     privmsg "$origin" "You are $sender (${sender[1]}) from ${sender[2]}. You are recognized as user $name and are in the following groups: $groups"
 }
 add_command whoami c_whoami
-
+return 0

@@ -4,7 +4,8 @@ default_groups='root'
 c_exec () {
     local IFS=$oifs
     "$@" 2>&1 >"$tmp_dir/exec"
-    read_do privmsg "$origin" "$(<"$tmp_dir/exec")"
+    read_do privmsg "$origin" < "$tmp_dir/exec"
     rm -f "$tmp_dir/exec"
 }
 add_command exec c_exec
+return 0

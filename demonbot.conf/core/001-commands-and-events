@@ -9,6 +9,7 @@
 #   -b  Run command in background
 run_cmd () {
     local opt OPTIND
+    unset opt_p opt_b
     while getopts pb opt; do
         declare "opt_$opt"=1
     done
@@ -26,6 +27,7 @@ run_cmd () {
     else
         ${commands["$cmd"]} "$@" &
     fi
+    return 0
 }
 
 # Indirectly execute a command or generate an IRC event.
@@ -40,6 +42,7 @@ run_cmd () {
 #   -b  Run command in background
 event () {
     local opt OPTIND
+    unset opt_c opt_p opt_b
     while getopts cpb opt; do
         declare "opt_$opt"="-$opt"
     done

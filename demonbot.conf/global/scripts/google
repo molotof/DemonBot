@@ -1,0 +1,27 @@
+#!/bin/bash
+
+default_groups='global'
+
+require_script 'lib/http' || return 1
+
+google_api_url='http://ajax.googleapis.com/ajax/services/search/web?v=1.0'
+google_api () {
+    http_request "$google_api_url" "@$"
+}
+
+c_google () {
+    local json="$tmp_dir/google.json"
+    google_api "q=$(urlencode "$*")" "max-results=1" > "$json"
+    local url=$(jsawk 'return this.responseData.results[0].url' < "$json")
+    if [[ $url ]]; then
+        local title=$(jsawk \
+            'return this.responseData.results[0].titleNoFormatting' \
+            < "$json" | h2t)
+        title=${title:-Untitled}
+        log "$url - $title"
+    else
+        log "No result for \"$*\"."
+    fi
+} 2>/dev/null
+add_command google c_google
+return 0

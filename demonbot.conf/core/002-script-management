@@ -44,10 +44,14 @@ source_all () {
         if [[ -z ${loaded_scripts["$script_name"]} ]]; then
             log -c "Loading: $script_name"
             default_groups='global'
-            . "$file"
             loaded_scripts["$script_name"]=$file
-            loaded+=" $script_name"
-            not_loaded=0
+            if . "$file"; then
+                loaded+=" $script_name"
+                not_loaded=0
+            else
+                unload_script "$script_name"
+                skipped+=" $script_name"
+            fi
         else
             log -c "Already loaded: $script_name"
             skipped+=" $script_name"
@@ -62,8 +66,13 @@ source_all () {
 # Parameters:
 #   filename_glob
 load_script () {
-    source_all "servers/$server/scripts" "$1" ||
-        source_all global/scripts "$1"
+    local dir is_loaded=1
+    if [[ $1 =~ '/' ]]; then
+        dir=${1%/*}
+        set -- "${1##*/}"
+    fi
+    source_all "servers/$server/scripts/$dir" "$1" ||
+        source_all "global/scripts/$dir" "$1"
     if [[ $? != 0 ]]; then
         if [[ $1 ]]; then
             log "No scripts found matching: $1"
@@ -72,12 +81,13 @@ load_script () {
         fi
         return 1
     elif [[ $loaded ]]; then
-        msg="Loaded:$loaded"
+        msg="Loaded:$loaded" is_loaded=0
     else
         msg="Nothing loaded"
     fi
     [[ $skipped ]] && msg+="; skipped:$skipped"
     log "$msg"
+    return $is_loaded
 }
 
 # Unload a script that was sourced by `source_all` or `load_script`.
@@ -108,9 +118,9 @@ unload_script () {
                         ;;
                 esac
             done
+            unset loaded_scripts["$script_name:funcs"]
         fi
         unset loaded_scripts["$script_name"]
-        unset loaded_scripts["$script_name:funcs"]
     fi
     if [[ ${loaded_scripts["$script_name:depof"]} ]]; then
         for dep in ${loaded_scripts["$script_name:depof"]}; do
@@ -230,23 +240,22 @@ require_script () {
         declare "opt_$opt"="$OPTARG"
     done
     shift $((OPTIND - 1))
-    opt_b=${opt_b:-$script_name}
+    local opt_b=${opt_b:-$script_name}
     if [[ -z $opt_b ]]; then
         log -c "${FUNCNAME[1]} must specify what script requires dependencies."
         return 1
     fi
-    for dep in "$@"; do
-        dep=${dep##*/}
+    for dep_file in "$@"; do
+        dep=${dep_file##*/}
         dep=${dep#[[:digit:]]*-}
         if ! in_list "$dep" "${!loaded_scripts[@]}"; then
             log -c "Attempting to load dependency: $dep"
             local script_parent=$opt_b
-            if load_script "$dep"; then
+            if load_script "$dep_file"; then
                 loaded_scripts["$opt_b:deps"]+="$dep "
                 loaded_scripts["$dep:depof"]+="$opt_b "
             else
-                log "Failed to load handler '$handler' dependency: $dep"
-                unload_script "$opt_b"
+                log "Failed to load dependency of '$opt_b': $dep"
                 return 1
             fi
         fi
