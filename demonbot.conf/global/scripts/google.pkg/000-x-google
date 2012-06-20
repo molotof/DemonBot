@@ -1,0 +1,18 @@
+#!/bin/bash
+
+c_google () {
+    local json="$tmp_dir/google.json"
+    google_api "q=$(urlencode "$*")" "max-results=1" > "$json"
+    local url=$(jsawk 'return this.responseData.results[0].url' < "$json")
+    if [[ $url ]]; then
+        local title=$(jsawk \
+            'return this.responseData.results[0].titleNoFormatting' \
+            < "$json" | h2t)
+        title=${title:-Untitled}
+        log "$url - $title"
+    else
+        log "No result for \"$*\"."
+    fi
+} 2>/dev/null
+add_command google c_google
+

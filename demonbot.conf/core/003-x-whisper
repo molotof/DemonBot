@@ -1,0 +1,12 @@
+#!/bin/bash
+
+c_whisper () {
+    local IFS=$'\n' target=${1:-$sender}
+    action "$origin" "whispers something to $target."
+    origin=(${sender[@]})
+    shift
+    local IFS=$oifs
+    event -c "$@"
+}
+add_command -p whisper c_whisper admin
+

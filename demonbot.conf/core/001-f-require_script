@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Load one or more scripts as deps to the current (or specified) script.
+#
+# Parameters:
+#   [-b depended_by] script [script ...]
+# Flags:
+#   -b= The name of the requiring script (default: $script_name set on load)
+# Return Codes:
+#   0   Successfully loaded all dependencies
+#   1   Failed to load a dependency or no requiring script
+require_script () {
+    local dep opt OPTIND
+    while getopts b: opt; do
+        declare "opt_$opt"="$OPTARG"
+    done
+    shift $((OPTIND - 1))
+    local opt_b=${opt_b:-$script_name}
+    if [[ -z $opt_b ]]; then
+        log -c "${FUNCNAME[1]} must specify what script requires dependencies."
+        return 1
+    fi
+    for dep_file in "$@"; do
+        dep=${dep_file##*/}
+        dep=${dep#[[:digit:]]*-}
+        if ! in_list "$dep" "${!loaded_scripts[@]}"; then
+            log -c "Attempting to load dependency: $dep"
+            local script_parent=$opt_b
+            if ! load_script "$dep_file"; then
+                log "Failed to load dependency of '$opt_b': $dep"
+                return 1
+            fi
+        fi
+        loaded_scripts["$opt_b:deps"]+="$dep "
+        loaded_scripts["$dep:depof"]+="$opt_b "
+    done
+    return 0
+}
+

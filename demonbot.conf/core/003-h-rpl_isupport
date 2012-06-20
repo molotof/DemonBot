@@ -1,0 +1,44 @@
+#!/bin/bash
+
+h_rpl_isupport () {
+    local IFS='=' feature params index p
+    shift 3
+    for feature in "$@"; do
+        [[ $feature =~ 'supported' ]] &&
+            break
+        IFS='='
+        feature=($feature)
+        feature[0]=${feature,,}
+        case "$feature" in
+            prefix)
+                IFS=')'
+                params=(${feature[1]/'('/})
+                ircd_features["$feature:0"]=$params
+                ircd_features["$feature:1"]=${params[1]}
+                ;;
+            *)
+                if [[ ${feature[1]} ]]; then
+                    index=0
+                    IFS=','
+                    params=(${feature[1]})
+                    IFS=':'
+                    for p in "${params[@]}"; do
+                        if [[ $p =~ ':' ]]; then
+                            p=($p)
+                            ircd_features["$feature:${p[0]}"]=${p[1]}
+                        elif (( ${#params[@]} > 1 )); then
+                            ircd_features["$feature:$index"]=$p
+                        else
+                            ircd_features["$feature"]=$p
+                        fi
+                        (( index++ ))
+                    done
+                else
+                    ircd_features["$feature"]=1
+                fi
+                ;;
+        esac
+    done
+}
+add_handler '005' h_rpl_isupport
+

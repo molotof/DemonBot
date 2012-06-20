@@ -1,0 +1,7 @@
+#!/bin/bash
+
+socat_ssl () {
+    socat STDIO OPENSSL:"$1":"$2",verify=0,crlf
+}
+add_connector -p ssl socat_ssl
+

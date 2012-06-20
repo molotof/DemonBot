@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Switch to the next nick in the nicks list.
+pop_nick () {
+    if [[ -z $nicks ]]; then
+        log -c 'There are no more nicks to switch to.'
+        return 1
+    fi
+    nick=$nicks
+    log -c "Trying nick: $nick"
+    nicks=("${nicks[@]:1}")
+}
+

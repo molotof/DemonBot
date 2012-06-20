@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# List matching files in configuration directories, skipping temp/backup files.
+# (Note: Path parameter can also be a file.)
+#
+# Parameters:
+#   path [filename_glob ...]
+# Output:
+#   Paths to files at $path in the configuration directories, one per line.
+paths_of () {
+    local dir glob path=$1
+    shift
+    [[ -z $1 ]] && set -- '*'
+    for glob in "$@"; do
+        for dir in "${config_dirs[@]}"; do
+            if [[ -e "$dir/$path" ]]; then
+                find "$dir/$path" -maxdepth 1 -type f -name "$glob" \
+                    -not -iregex ".*.\(swp\|tmp\|bak\|old\)\|~.*"
+            fi
+        done
+    done | sort -u
+}

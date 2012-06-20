@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Associate a function to a loaded script.
+#
+# Parameters:
+#   script_name funcion
+add_sfunc () {
+    if [[ ${loaded_scripts["$1:funcs"]} ]]; then
+        if in_list "$2" ${loaded_scripts["$1:funcs"]}; then
+            log -c "Already associated: $1/$2"
+            return 1
+        fi
+    fi
+    log -d "Associating: $1/$2"
+    loaded_scripts["$1:funcs"]+="$2 "
+}
+

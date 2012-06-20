@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# For now, until we add dependency handling for external stuff in Demonbot.
+for b in jsawk js html2text; do
+    if ! is_exec "$b"; then
+        log -c "This script requires dependency: $b."
+        return 1
+    fi
+done
+
+curl () { command curl --connect-timeout 5 "$@"; }
+h2t () { html2text -width -1; }
+

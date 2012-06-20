@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Split hostmasks into parts.
+#
+# Parameters:
+#   nick!user@host
+# Output:
+#   Each part of hostmask, delimited by a space
+split_hostmask () {
+    local IFS=' !@'
+    echo $1
+}
+

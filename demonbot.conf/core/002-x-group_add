@@ -1,0 +1,16 @@
+#!/bin/bash
+
+c_groupadd () {
+    local name home
+    if ! is_user "$1"; then
+        log "I do not have a user named $name."
+        return 1
+    fi
+    shift
+    printf '%s\n' "$@" >> "$home/groups"
+    sort -u "$home/groups" > "$home/groups.new"
+    mv "$home/groups.new" "$home/groups"
+    log "User added to groups."
+}
+add_command groupadd c_groupadd admin
+

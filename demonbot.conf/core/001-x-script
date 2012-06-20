@@ -1,0 +1,40 @@
+#!/bin/bash
+
+default_groups='admin'
+
+c_script () {
+    local s prefix
+    if [[ ${1:0:1} == '-' ]]; then
+        case "$1" in
+            -r)
+                prefix='re'
+                ;;
+            -u)
+                prefix='un'
+                ;;
+        esac
+        shift
+    fi
+    for s in "$@"; do
+        if [[ ${s,,} == 'core' ]]; then
+            if [[ $prefix != 'un' ]]; then
+                reload_core
+            else
+                log "Momentarily consider how silly that would be, then use 'reload_core', instead."
+            fi
+        else
+            ${prefix}load_script "$s"
+        fi
+    done
+}
+add_command -p script c_script
+
+c_script_list () {
+    local IFS=$'\n'
+    privmsg "$origin" $(script_list)
+}
+add_command -p script_list c_script_list
+
+add_command -p reload_all_scripts reload_all_scripts
+add_command -p reload_core reload_core
+

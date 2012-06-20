@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Source matching scripts from server and global script directories and report
+# the results (A wrapper around `source_all`).
+#
+# Parameters:
+#   filename_glob
+load_script () {
+    local root dir='scripts' is_loaded=1
+    if [[ $1 =~ '/' ]]; then
+        dir=${1%/*}
+        set -- "${1##*/}"
+    fi
+    source_all "servers/$server/$dir" "$1" ||
+        source_all "global/$dir" "$1"
+    if [[ $? != 0 ]]; then
+        if [[ $1 ]]; then
+            log "No scripts found matching: $1"
+        else
+            log "No scripts were found."
+        fi
+        return 1
+    elif [[ $loaded ]]; then
+        msg="Loaded:$loaded" is_loaded=0
+    else
+        msg="Nothing loaded"
+    fi
+    [[ $skipped ]] && msg+="; skipped:$skipped"
+    log "$msg"
+    return $is_loaded
+}
+

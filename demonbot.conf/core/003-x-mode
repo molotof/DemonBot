@@ -1,0 +1,7 @@
+#!/bin/bash
+
+c_mode () {
+    send mode "$@"
+}
+add_command mode c_mode admin
+

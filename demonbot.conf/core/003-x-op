@@ -1,0 +1,25 @@
+#!/bin/bash
+
+c_op () {
+    local u f l c=0
+    if [[ $1 == '-c' ]]; then
+        origin=$2
+        shift 2
+    elif [[ ! ${ircd_features['chantypes']:-'#'} =~ "${origin[0]:0:1}" ]]
+    then
+        log "In what channel (-c)?"
+        return 1
+    fi
+    for u in "$@"; do
+        f+='o'
+        l+=" $u"
+        if ((++c == ${ircd_features['modes']:-4})); then
+            send mode "$origin" "$f$l"
+            f= l= c=0
+        fi
+    done
+    [[ $f ]] &&
+        send mode "$origin" "$f$l"
+}
+add_command op c_op admin
+

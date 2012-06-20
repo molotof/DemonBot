@@ -1,0 +1,24 @@
+#!/bin/bash
+
+h_rpl_namreply () {
+    local name
+    shift 3
+    if [[ $1 == [\@\*\=] ]]; then
+        local chan_visibility=$1
+        shift
+    fi
+    local chan=${1,,}
+    shift
+    if [[ -z $getting_namreply ]]; then
+        getting_namreply=1
+        channel_users=()
+    fi
+    for name in $@; do
+        local flag=
+        [[ ${ircd_features['prefix:1']} =~ ${name:0:1} ]] &&
+            flag=${name:0:1} name=${name:1}
+        channel_users["$chan"]+="$name "
+    done
+}
+add_handler '353' h_rpl_namreply
+

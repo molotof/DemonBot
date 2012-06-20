@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Send login information to IRC server.
+login () {
+    if [[ $pass ]]; then
+        send pass "$pass" || return 1
+    fi
+    send nick "$nick" || return 1
+    send user "$user $mode * :$name" || return 1
+}
+

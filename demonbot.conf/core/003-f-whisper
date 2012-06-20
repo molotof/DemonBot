@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Set sender as origin so that messages will be send back to the sender.
+#
+# Modifies Globals:
+#   $origin     Set to sender.
+whisper () {
+    if [[ $sender ]]; then
+        [[ $origin != $sender  ]] &&
+            action $origin "whispers something to $sender."
+        origin=(${sender[@]})
+    fi
+}
+

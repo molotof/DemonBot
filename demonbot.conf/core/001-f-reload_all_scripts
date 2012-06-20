@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Reload all scripts that have been sourced by `source_all` or `load_script`.
+reload_all_scripts () {
+    local script
+    for script in "${!loaded_scripts[@]}"; do
+        [[ $script =~ ':' ]] && continue
+        reload_script "$script"
+    done
+}
+

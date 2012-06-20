@@ -1,0 +1,9 @@
+#!/bin/bash
+
+c_privmsg () {
+    local IFS=' ' target=$1
+    shift
+    privmsg "$target" "$*"
+}
+add_command -p privmsg c_privmsg admin
+

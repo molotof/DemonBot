@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# (Callback of: log) Log a message to the console and send a copy of it to the
+# origin channel or user in a PRIVMSG, unless specified otherwise.
+log_callback () {
+    [[ -z $log_only && $logged_in && $origin ]] && privmsg "$origin" "$1"
+}
+

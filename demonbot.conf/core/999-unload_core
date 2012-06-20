@@ -1,4 +1,5 @@
 #!/bin/bash
+
 _unload_core () {
     local f
     for f in $(compgen -A function _unload_core-); do
@@ -6,3 +7,4 @@ _unload_core () {
         $f
     done
 }
+

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+h_join () {
+    local chan=${3,,} who=($(split_hostmask "$2"))
+    who=${who,,}
+    if [[ $who == ${nick,,} ]]; then
+        channels["$chan"]=1
+    fi
+}
+add_handler join h_join
+

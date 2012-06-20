@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Send a CTCP message.
+#
+# Parameters:
+#   type target message
+ctcp () {
+    if [[ $1 == '-r' ]]; then
+        local reply='notice'
+        shift
+    fi
+    if [[ -z $2 ]]; then
+        log -c 'No type or message set!'
+        return 1
+    fi
+    local message line name=${1^^} target=$2
+    shift 2
+    for message in "$@"; do
+        log -c "CTCP ${name^^} ${reply:-query} to $target: $message"
+        while read -r line; do
+            send ${reply:-privmsg} "$target" $':\x01'"$name $line"$'\x01'
+        done < <(fold -s -w $((497-${#target}-${#name})) <<< "$message")
+    done
+}
+
+# Send an action message.
+#
+# Parameters:
+#   target message
+action () {
+    ctcp action "$1" "$2"
+}
+

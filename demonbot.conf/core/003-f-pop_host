@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Switch to the next host in the hosts list.
+pop_host () {
+    if [[ -z $hosts ]]; then
+        log -c 'There are no more hosts to switch to.'
+        return 1
+    fi
+    local trash IFS=$oifs
+    read host port connector trash <<< "$hosts"
+    port=${port:-6667}
+    connector=${connector:-tcp}
+    log -c "Selected ${connector^^} host $host:$port."
+    hosts=("${hosts[@]:1}")
+}
+

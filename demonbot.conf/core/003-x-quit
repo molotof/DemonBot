@@ -1,0 +1,9 @@
+#!/bin/bash
+
+c_quit () {
+    local IFS=' '
+    send quit ":$*"
+    user_disconnect=1
+}
+add_command quit c_quit admin
+

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Return whether or not a user exists.
+#
+# Parameters:
+#   name
+# Return Codes:
+#   0   User exists
+#   1   User doesn't exist
+# Modifies Globals:
+#   $name   Name of the user
+#   $home   Home directory of the user
+is_user () {
+    name=${1,,}
+    home="$users_dir/$name"
+    [[ -f "$home/login-key" ]]
+}
+

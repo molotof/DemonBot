@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Determine if the first string given matches one of the others following it.
+#
+# Parameters:
+#   match_string [string ...]
+# Return Codes:
+#   0   Match found
+#   1   No match
+in_list () {
+    local item string=$1
+    shift
+    for item in "$@"; do
+        [[ $item == $string ]] && return 0
+    done
+    return 1
+}
+

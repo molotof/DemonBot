@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Return the subsequent strings that do not match the first string given.
+#
+# Parameters:
+#   regex [string ...]
+# Output:
+#   Each string not matching first parameter on separate lines.
+# Return Codes:
+#   0   Match found
+#   1   No match.
+del_list () {
+    local item string=$1 found=1
+    [[ -z $2 ]] && return 1
+    shift
+    for item in "$@"; do
+        if [[ $item != $string ]]; then
+            echo "$item"
+        else
+            found=0
+        fi
+    done
+    return $found
+}
+

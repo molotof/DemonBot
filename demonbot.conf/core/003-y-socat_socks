@@ -1,0 +1,10 @@
+#!/bin/bash
+
+socat_socks () {
+    socks_host=${socks_host:-localhost}
+    socks_port=${socks_port:-9999}
+    socat STDIO \
+        SOCKS4A:"$socks_host":"$1":"$2",socksport="$socks_port",crlf
+}
+add_connector -p socks socat_socks
+

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+h_ping () {
+    send pong $host $2
+}
+add_handler ping h_ping
+

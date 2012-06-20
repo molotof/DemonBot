@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Loop-rotate to the next host in the hosts list.
+#
+# Parameters:
+#   ['prev']
+rotate_host () {
+    local IFS=$oifs
+    read host port connector trash <<< "$hosts"
+    port=${port:-6667}
+    connector=${connector:-tcp}
+    log -c "Selected ${connector^^} host $host:$port."
+    if [[ ${#hosts[@]} -gt 1 ]]; then
+        if [[ $1 == 'prev' ]]; then
+            hosts=("${hosts[-1]}" "${hosts[@]:0:((${#hosts[@]}-1))}")
+        else
+            hosts=("${hosts[@]:1}" $hosts)
+        fi
+    fi
+}
+

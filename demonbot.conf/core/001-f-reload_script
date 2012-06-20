@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Reload a script that was sourced by `source_all` or `load_script`.
+#
+# Parameters:
+#   script_name
+reload_script () {
+    unload_script "$1"
+    load_script "$1"
+}
+

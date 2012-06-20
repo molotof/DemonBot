@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Send a private message.
+#
+# Parameters:
+#   target message [message ...]
+privmsg () {
+    if [[ -z $2 ]]; then
+        log -c 'No target or message set!'
+        return 1
+    fi
+    local message line target=$1
+    shift
+    for message in "$@"; do
+        log -c "Telling $target: $message"
+        while read -r line; do
+            send privmsg "$target" ":$line"
+        done < <(fold -s -w $((497-${#target})) <<< "$message")
+    done
+}
+

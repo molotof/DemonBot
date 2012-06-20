@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Translate numeric replies to their names.
+#
+# numeric_reply
+nrep_name () {
+    echo "${numeric[$1]:-$1}"
+}
+

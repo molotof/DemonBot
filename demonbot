@@ -1,6 +1,6 @@
 #!/bin/bash
 ### DemonBot ###########################
-# Version 20120618-2 by Scott Garrett #
+# Version 20120619-1 by Scott Garrett #
 # Wintervenom [(at)] archlinux.us     #
 #######################################
 # Dependencies:
@@ -8,7 +8,7 @@
 # - socat
 # - coreutils: fold, awk
 
-version=20120618-2
+version=20120619-1
 script_name='main'
 debug_mode=1
 

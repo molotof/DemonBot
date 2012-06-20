@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Join parameters by a string or format them into a list.
+#
+# Parameters:
+#   [-l [-c conjunction]] [-d delimiter] item [item ...]
+# Flags:
+#   -l  List items (adding the conjunction word before the final item)
+#   -d= Delimiter string (default: ' ' or, with -l, ',')
+#   -c= Word to use as final conjunction in list ('-e') mode (default: 'and')
+#   -f= `printf  format string for item (default: '%s').
+combine () {
+    local opt OPTIND
+    while getopts ld:c:f: opt; do
+        declare "opt_$opt"="$OPTARG"
+        [[ $opt == 'l' ]] && declare "opt_$opt"=1
+    done
+    shift $((OPTIND - 1))
+    local s=${opt_f:-%s}
+    if [[ $opt_l && $# > 1 ]]; then
+        local d=${opt_d:-,} c=${opt_c:-and}
+        if [[ $# == 2 ]]; then
+            printf -- "$s $c $s\n" "$1" "$2"
+        else
+            printf -- "$s$d " "${@:1:$(($#-1))}"
+            printf -- "$c $s\n" "${!#}"
+        fi
+    else
+        local d=${opt_d:- }
+        local string=$(printf -- "$d$s" "$@")
+        echo "${string:${#d}}"
+    fi
+}
+

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+c_master_override () {
+    whisper
+    if [[ $1 != $master_key ]]; then
+        log 'Incorrect master key.'
+        return 1
+    fi
+    users["${sender[1]}@${sender[2]}"]="${sender,,} root"
+    log 'You now have master access to my core. ;)'
+}
+add_command master_override c_master_override global
+

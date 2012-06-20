@@ -1,0 +1,14 @@
+#!/bin/bash
+
+h_rpl_myinfo () {
+    host=$2
+    host_name=$4
+    host_ircd=$5
+    modes_user=$5
+    modes_chan=$6
+    logged_in=1
+    ircd_features=()
+    join_auto
+}
+add_handler '004' h_rpl_myinfo
+

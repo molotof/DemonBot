@@ -1,0 +1,4 @@
+#!/bin/bash
+
+declare -g -A channel_users channels
+

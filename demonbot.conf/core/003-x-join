@@ -1,0 +1,8 @@
+#!/bin/bash
+
+c_join () {
+    local IFS=','
+    send join "$*"
+}
+add_command join c_join admin
+

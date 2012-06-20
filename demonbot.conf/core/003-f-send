@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Send command to IRC server.
+#
+# Parameters:
+#   command data
+send () {
+    local IFS=' '
+    if [[ ${connection[1]} ]]; then
+        if [[ ${1:0:1} != ':' ]]; then
+            echo "${1^^} ${*:2}" >&${connection[1]}
+        else
+            echo "$1 ${2^^} ${*:3}" >&${connection[1]}
+        fi
+    else
+        log -c 'Not connected to server.'
+        return 1
+    fi
+}
+

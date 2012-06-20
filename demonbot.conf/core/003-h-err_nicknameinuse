@@ -1,0 +1,13 @@
+#!/bin/bash
+
+h_err_nicknameinuse () {
+    [[ $logged_in ]] &&
+        return
+    if $next_nick; then
+        event -c nick
+    else
+        event -c quit
+    fi
+}
+add_handler '433' h_err_nicknameinuse
+

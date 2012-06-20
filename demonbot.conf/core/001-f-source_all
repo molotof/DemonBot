@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Source matching scripts in configuration directories, skipping temp/backup
+# files. Scripts beginning with digits and a hypen that match the file name
+# glob will also be loaded in order. Path parameter can also be a file.
+#
+# Parameters:
+#   path [filename_glob]
+# Sets Globals:
+#   loaded  Space-delimited list of loaded scripts
+#   skipped Space-delimited list of skipped scripts
+# Return Codes:
+#   0   One or more scripts loaded successfully
+#   1   No script loaded successfully
+source_all () {
+    local file script_name not_loaded=1 msg IFS=$oifs
+    loaded= skipped=
+    log -c "Scanning '$1' for: ${2:-*}"
+    while read -r file; do
+        local script_name=${file##*/}
+        script_name=${script_name#[[:digit:]]*-}
+        if [[ $script_name =~ /[[:alnum:]~_.-]+$/ ]]; then
+            log -c "Invalid filename: $script_name"
+        elif [[ -z ${loaded_scripts["$script_name"]} ]]; then
+            log -c "Loading: $script_name"
+            default_groups='global'
+            loaded_scripts["$script_name"]=$file
+            if . "$file"; then
+                loaded+=" $script_name"
+                not_loaded=0
+                continue
+            else
+                log -c "Error loading: $script_name"
+                unload_script "$script_name"
+            fi
+        else
+            log -c "Already loaded: $script_name"
+        fi
+        skipped+=" $script_name"
+    done < <(paths_of "$1" "$2" "[0-9]*-$2")
+    return $not_loaded
+}
+

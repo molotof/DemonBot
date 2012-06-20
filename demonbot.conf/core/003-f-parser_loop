@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Parses lines from IRC server (read: /dev/fd/9) and punts it to a handler.
+parser_loop () {
+    local handler prefix event args line
+    while read -r line; do
+        if [[ ${line:0:1} == ':' ]]; then
+            read -r prefix event line <<< "${line:1}"
+        else
+            prefix=$host
+            read -r event line <<< "$line"
+        fi
+        [[ -z $event ]] && continue
+        event=${event,,}
+        IFS=':' read -r args line <<< "$line"
+        IFS=$oifs
+        if [[ ${handlers["$event"]} ]]; then
+            log -d "Handling $event with: ${handlers["$event"]}"
+            for handler in ${handlers["$event"]}; do
+                $handler "$event" "$prefix" $args "$line"
+            done
+        elif [[ ${handlers['unknown']} ]]; then
+            log -d "Handling $event with: ${handlers['unknown']}"
+            ${handlers['unknown']} "$event" "$prefix" $args "$line"
+        fi
+        [[ ${handlers['all']} ]] &&
+            ${handlers['all']} "$event" "$prefix" $args "$line"
+        case "$event" in
+            '!disconnect')
+                unset logged_in
+                log -c 'Disconnected from server.'
+                break
+                ;;
+            '!connect')
+                login ||
+                    log -c 'Could not log into server.'
+                ;;
+        esac
+    done <&9
+}
+

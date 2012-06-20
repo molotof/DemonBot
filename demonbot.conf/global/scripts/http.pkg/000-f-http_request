@@ -1,0 +1,12 @@
+#!/bin/bash
+
+http_request () {
+    [[ -z $1 ]] && return 1
+    local url=$1 pair data_args=() IFS=$'\n'
+    shift
+    for pair in "$@"; do
+        data_args+=(--data-urlencode "$pair")
+    done
+    curl -s --get "${data_args[@]}" "$url"
+}
+

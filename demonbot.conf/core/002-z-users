@@ -1,0 +1,3 @@
+#!/bin/bash
+load_users
+_unload_core-save_users () { save_users; }

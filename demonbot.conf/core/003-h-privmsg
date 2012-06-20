@@ -1,0 +1,23 @@
+#!/bin/bash
+
+h_privmsg () {
+    local is_command text=${4##$'\x03'*([[:digit:],])}
+    local sender=($(split_hostmask "$2")) origin=($(split_hostmask "$3"))
+    local sender_mask=${2#*'!'}
+
+    if [[ ${text:0:1} == $cmd_char ]]; then
+        is_command=1 text=${text:1}
+    else
+        local word=${text:0:${#nick}}
+        [[ ${word,,} == ${nick,,} ]] && is_command=1 text=${text#*[ :,]}
+    fi
+    [[ $origin == $nick ]] &&
+        is_command=1 origin=(${sender[@]})
+    log -c "<$sender $origin> $text"
+    if [[ $is_command ]]; then
+        local IFS=$'\n\r'
+        event -cp $(split_strings "$text")
+    fi
+}
+add_handler -p privmsg h_privmsg
+

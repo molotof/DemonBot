@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Dissociate a function from a loaded script.
+#
+# Parameters:
+#   script_name funcion
+del_sfunc () {
+    local funcs
+    if [[ ${loaded_scripts["$1:funcs"]} ]]; then
+        funcs=${loaded_scripts["$1:funcs"]}
+        loaded_scripts["$1:funcs"]=$(del_list "$2" $funcs)
+        log -d "Dissociated: $1/$2"
+        return 0
+    fi
+     log -c "Already dissociated: $1/$2"
+    return 1
+}
+

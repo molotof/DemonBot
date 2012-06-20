@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Split a text's words into lines, interperting double-quoted strings as a
+# single line.
+#
+# Parameters:
+#   text
+# Output:
+#   One line per word or quoted string
+split_string () {
+    local IFS=$oifs
+    local string=$*
+    while :; do
+        if [[ $string =~ '"' ]]; then
+            printf -- '%s\n' ${string%%\"*}
+            string=${string#*\"}
+            if [[ $string =~ '"' ]]; then
+                echo "${string%%\"*}"
+                string=${string#*\"}
+            fi
+        else
+            [[ $string ]] && printf -- '%s\n' $string
+            break
+        fi
+    done
+}
+
+# Split one or more text's words into lines, interperting unescaped double-
+# quoted strings as a single line.
+#
+# Parameters:
+#   text [text ...]
+split_strings () {
+    local string
+    while [[ $1 ]]; do
+        string=$(split_string "${1//\\\"/\\\,}")
+        echo "${string//\\\,/\"}"
+        shift
+    done
+}
+

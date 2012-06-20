@@ -1,0 +1,14 @@
+#!/bin/bash
+
+urlencode () {
+    local n c
+    for ((n=0; n<${#1}; n++)); do
+        c=${1:$n:1}
+        if [[ $c == [[:alnum:]] ]]; then
+            echo -n "$c"
+        else
+            printf -- '%%%02X' \'"$c"
+        fi
+    done
+}
+

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+c_nick () {
+    if [[ $1 ]]; then
+        send nick "$1"
+    else
+        send nick "$nick"
+    fi
+}
+add_command nick c_nick admin
+

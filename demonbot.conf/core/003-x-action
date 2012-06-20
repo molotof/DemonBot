@@ -1,0 +1,9 @@
+#!/bin/bash
+
+c_action () {
+    local IFS=' ' target=$1
+    shift
+    action "$target" "$*"
+}
+add_command -p action c_action admin
+

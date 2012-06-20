@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Loop-rotate to the next nick in the nicks list.
+#
+# Parameters:
+#   ['prev']
+rotate_nick () {
+    nick=$nicks
+    log -c "Trying nick: $nick"
+    if [[ ${#nicks[@]} -gt 1 ]]; then
+        if [[ $1 == 'prev' ]]; then
+            nicks=("${nicks[-1]}" "${nicks[@]:0:((${#nicks[@]}-1))}")
+        else
+            nicks=("${nicks[@]:1}" $nicks)
+        fi
+    fi
+}
+

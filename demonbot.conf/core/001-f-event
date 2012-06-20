@@ -1,35 +1,5 @@
 #!/bin/bash
 
-# Execute an assigned command by name.
-#
-# Parameters:
-#   [-p] [-b] command [param ...]
-# Flags:
-#   -p  Check user clearance beore running
-#   -b  Run command in background
-run_cmd () {
-    local opt OPTIND
-    unset opt_p opt_b
-    while getopts pb opt; do
-        declare "opt_$opt"=1
-    done
-    shift $((OPTIND - 1))
-    local cmd=${1,,}
-    [[ $cmd =~ ^[[:alnum:]~_.-]+$ && ${commands["$cmd"]} ]] || return 1
-    if [[ $opt_p ]] && ! check_clearance ${commands["$cmd:groups"]}; then
-        log "You are not powerful enough to use this command."
-        return 1
-    fi
-    shift
-    IFS=$oifs
-    if [[ -z $opt_b ]]; then
-        ${commands["$cmd"]} "$@"
-    else
-        ${commands["$cmd"]} "$@" &
-    fi
-    return 0
-}
-
 # Indirectly execute a command or generate an IRC event.
 #
 # Parameters (IRC event):

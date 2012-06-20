@@ -1,0 +1,11 @@
+#!/bin/bash
+
+h_nick () {
+    local old=($(split_hostmak "$2")) new=($(split_hostmask "$3"))
+    if [[ $old == $nick ]]; then
+        log -c "Bot nick was changed to $new."
+        nick=$new
+    fi
+}
+add_handler 'nick' h_nick
+

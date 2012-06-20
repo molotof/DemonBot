@@ -1,0 +1,7 @@
+#!/bin/bash
+
+h_rpl_endofnames () {
+    unset getting_namreply
+}
+add_handler '366' h_rpl_endofnames
+

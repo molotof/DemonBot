@@ -1,0 +1,14 @@
+#!/bin/bash
+
+h_part () {
+    local chan=${3,,} who=($(split_hostmask "$2"))
+    who=${who,,}
+    if [[ $who == ${nick,,} ]]; then
+        unset channels["$chan"]
+        unset channel_users["$chan"]
+    else
+        channel_users["$chan"]=$(del_list "$who" ${channel_users[@]})
+    fi
+}
+add_handler part h_part
+

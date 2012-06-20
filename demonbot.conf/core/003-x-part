@@ -1,0 +1,7 @@
+#!/bin/bash
+
+c_part () {
+    send part ":$1"
+}
+add_command part c_part admin
+

@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Determine whether a user is someone the bot knows personally by their mask.
+# $sender and $sender_mask are expected to have been set by a PRIVMSG handler.
+#
+# Parameters:
+#   [username ...]
+# Return Codes:
+#   0   User identified
+#   1   User unknown
+# Modifies Globals:
+#   $name       Identified username
+#   $home       User's home directory
+#   $groups     Which groups the user is in.
+identify_user () {
+    groups='global'
+    [[ -z $sender || -z $sender_mask ]] && return 1
+    if [[ ${users["$sender_mask"]} ]]; then
+        name=${users["$sender_mask"]}
+        home="$users_dir/$name"
+        groups=${users["$sender_mask:groups"]}
+        return 0
+    fi
+    for name in "$@" "$sender"; do
+        [[ -z $name ]] && continue
+        name=${name,,}
+        home="$users_dir/$name"
+        log -c "$home/masks"
+        if grep -qF "$sender_mask" "$home/masks" 2>/dev/null
+        then
+            users["$sender_mask"]=$name
+            [[ -f "$home/groups" ]] &&
+                users["$sender_mask:groups"]=$(<"$home/groups")
+            groups=${users["$sender_mask:groups"]}
+            return 0
+        fi
+    done
+    name='unknown'
+    home="$users_dir/$name"
+    return 1
+}
+

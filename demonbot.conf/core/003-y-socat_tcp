@@ -1,0 +1,7 @@
+#!/bin/bash
+
+socat_tcp () {
+    socat STDIO TCP:"$1":"$2",crlf
+}
+add_connector -p tcp socat_tcp
+
