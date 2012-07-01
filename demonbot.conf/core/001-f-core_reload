@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Reload Demonbot core and all scripts.
+core_reload () {
+    IFS=$' \t\n\r'
+    oifs=$IFS
+    is_exec -e _unload_core
+    log 'Reloading core and all scripts.'
+    local _loaded_scripts=($(script list)) opt_s=1
+    script unload_all
+    unregister_all
+    . "$@"
+    unset opt_s
+    for s in "${_loaded_scripts[@]}"; do
+        script load "$s"
+    done
+    unset _loaded_scripts
+    log 'The core has been reloaded successfully.'
+    return 0
+}

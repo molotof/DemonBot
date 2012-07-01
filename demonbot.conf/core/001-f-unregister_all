@@ -1,0 +1,37 @@
+#!/bin/bash
+
+unregister_all () {
+    local n h e=0
+    case "$1" in
+        h|handlers)
+            for n in "${!handlers[@]}"; do
+                for h in ${handlers["$n"]}; do
+                    register -u handler "$n" "$h" || e=1
+                done
+            done
+            ;;
+        x|commands)
+            for n in "${!commands[@]}"; do
+                if [[ ! $n =~ ':' ]]; then
+                    del_command "$n" || e=1
+                fi
+            done
+            ;;
+        y|connectors)
+            for n in "${!connectors[@]}"; do
+                register -u connector "$n" || e=1
+            done
+            ;;
+        '')
+            for n in handlers commands connectors; do
+                $FUNCNAME $n || e=1
+            done
+            ;;
+        *)
+            log -c 'invalid type'
+            return 1
+            ;;
+    esac
+    return $e
+}
+

@@ -76,15 +76,17 @@ EOF
 #   -c  Only log to console
 #   -d  Log to console if $debug_mode is set; implies '-c'
 #   -f  Clean up and exit to shell after logging message
+# Uses Globals:
+#   log_prefix  Text to prefix the message
+#   log_suffix  Text to suffix the message
 # Callbacks:
-#   log_callback message
+#   log_callback message # With log_prefix and log_suffix applied
 log () {
-    log_prefix="[$(date +%T)] ${FUNCNAME[1]}"
-    local prefix is_fatal
+    local is_fatal stamp="[$(date +%T)] ${FUNCNAME[1]}"
     case "$1" in
         -d)
             [[ -z $debug_mode ]] && return 1
-            prefix+=' DEBUG'
+            stamp+=' DEBUG'
             ;&
         -c)
             local log_only=1
@@ -93,27 +95,72 @@ log () {
             shift
             ;;
         -f)
-            is_fatal=1 prefix+=' FATAL'
+            is_fatal=1 stamp+=' FATAL'
             shift
             ;;
     esac
+    set -- "${log_prefix}${1}${log_suffix}"
     # Send to stderr so logging messages don't screw up functions feeding the
     # stdout to someone else's stdin.
-    echo "$log_prefix: $1" >&2
+    echo "$stamp: $1" >&2
     is_exec -e log_callback "$1"
     [[ $is_fatal ]] && cleanup
+}
+
+# Silence `wait` errors.
+wait () {
+    builtin wait "$@" 2>/dev/null
+}
+
+# Silence `kill` errors.
+kill () {
+    [[ $1 ]] && builtin kill "$@" 2>/dev/null
+}
+
+# Sends a signal to specified processes (or all jobs, if no PIDs given) and
+# gives them a chance to respond gracefully before killing remaining PIDs.
+#
+# Parameters:
+#   [signal [pid ...]]
+# Return Codes:
+#   0   All processes terminated.
+#   1   Unkillable processes remain.
+safe_kill () {
+    local s=$1
+    shift
+    [[ -z $1 ]] && set -- $(jobs -p)
+    if kill -0 $@; then
+        log -c 'Sending signal ${s^^} to background PID(s): $*'
+        kill -s ${s:-TERM} $@
+        # Just in case someone was doing some strange stuff.
+        kill -s CONT $@
+        sleep 2
+        if kill -0 $@; then
+            sleep 3
+            log -c 'Killing remaining background processes.'
+            kill -9 $@
+            sleep 1
+            if kill -0 $@; then
+                log -c 'Unkillable background processes remain!'
+                return 1
+            fi
+        fi
+    fi
+    return 0
 }
 
 # Clean up before exit.
 cleanup () {
     echo >&2
-    if [[ $connection_PID ]]; then
+    if [[ $connection_pid ]]; then
         log -c 'Disconnecting from the server. Goodbye, cruel world!'
-        kill -w $connection_PID 2> /dev/null
+        kill -w $connection_pid 2> /dev/null
     fi
     log -c 'Cleaning up...'
+    exec 8<&-
     exec 9<&-
     [[ -f $demonbot_pid ]] && rm -f "$demonbot_pid"
+    safe_kill
     exit
 }
 
@@ -143,7 +190,8 @@ server_dir="$config_dir/servers/$server"
 users_dir="$server_dir/users"
 users_file="$server_dir/passwd"
 tmp_dir="$server_dir/tmp"
-demonbot_io="$server_dir/io"
+demonbot_in="$server_dir/in"
+demonbot_out="$server_dir/out"
 demonbot_pid="$server_dir/lock"
 
 trap cleanup INT TERM HUP
@@ -193,8 +241,8 @@ source_all "servers/$server/config" ||
 mkdir -p "$tmp_dir" "$users_dir"
 touch "$demonbot_pid"
 
-rm -f "$demonbot_io" 2> /dev/null
-mkfifo "$demonbot_io"
+rm -f "$demonbot_in" "$demonbot_out" 2> /dev/null
+mkfifo "$demonbot_in" "$demonbot_out"
 
 log -c 'Loading scripts.'
 load_script

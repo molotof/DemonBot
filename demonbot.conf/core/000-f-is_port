@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Return whether argument is a valid port number.
+#
+# Parameters:
+#   string
+# Return Codes:
+#   0   Is port number
+#   1   Is not port number
+is_port () {
+    [[ $1 =~ ^[[:digit:]]$ ]] && [[ $1 > 0 && $1 <= 65535 ]]
+}

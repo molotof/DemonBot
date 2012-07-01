@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Call the connector binary and establish a connection to the IRC server.
+#
+# Uses Globals:
+#   host
+#   [port]
+#   [connector]
+connection () {
+    db_msg () {
+        local IFS=' '
+        [[ $2 ]] && set -- "$1 :$*"
+        echo "!demonbot $1"
+    }
+    cleanup () {
+        exec 8<&-
+        rm -f "$demonbot_in" 2>/dev/null
+        exit 0
+    }
+    [[ -z $con_bin ]] && db_msg error 'No connection binary.'
+    [[ -z $host ]] && db_msg error 'No host set.'
+    [[ -z $port ]] && db_msg error 'No port set.'
+    is_port "$port" || db_msg error "Invalid port number: $port"
+    [[ $con_bin && $host ]] && is_port "$port" || return 1
+    if ! in_list "$(cmd_type "$con_bin")" 'function' 'file'; then
+        db_msg error "Connector not executable: $con_bin"
+        return 1
+    fi
+    [[ -f "$demonbot_in" ]] && rm -f "$demonbot_in"
+    mkfifo "$demonbot_in"
+    trap cleanup EXIT INT HUP TERM
+    exec 8<&-
+    exec 8<>"$demonbot_in"
+    db_msg connect "$host $port"
+    $con_bin "$host" "$port" <&8
+    db_msg disconnect
+    return 0
+}

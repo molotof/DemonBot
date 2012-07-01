@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Return whether argument is a number.
+#
+# Parameters:
+#   string
+# Return Codes:
+#   0   Is digit
+#   1   Is not digit
+is_digit () {
+    [[ $1 =~ ^[[:digit:]]$ ]]
+}

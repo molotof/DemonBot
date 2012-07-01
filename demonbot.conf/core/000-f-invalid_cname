@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Return whether or not the string given contains invalid command name chars.
+#
+# Parameters:
+#   name
+# Return Codes:
+#   0   Invalid
+#   1   Valid
+invalid_cname () { [[ $1 =~ [^[:alnum:]~_.-] ]]; }

@@ -1,0 +1,106 @@
+#!/bin/bash
+
+c_user () {
+    local name home a=$1 u=$2
+    syntax "$a" 'action' '(-p|passwd|-a|add|-d|del|-g|group)' \
+        "$u" 'username' '[[:alnum:]_-]+' ||
+        return 1
+    if in_list "$a" '-a' 'add'; then
+        if user exists "$u"; then
+            log "Someone already has the username '%u'."
+            return 1
+        fi
+    elif ! user exists "$u"; then
+        log "I do not have a user named '$u'."
+        return 1
+    fi
+    shift 2
+    case "$a" in
+        -p|passwd)
+            if [[ $origin != $sender ]]; then
+                log "Don't do this in the channel; send me a query (and don't use the same password)."
+                return 1
+            fi
+            syntax "$1" 'old password' '[[:print:]]+' \
+                "$2" 'new password' '[[:print:]]+' ||
+                return 1
+            local key=$(sha1sum <<< "$1" | cut -d' ' -f1)
+            local correct_key=$(<"$home/login-key")
+            if [[ $key != $correct_key ]]; then
+                log "Incorrect old password."
+                return 1
+            fi
+            user update "$name" "$2"
+            log "Your password has been updated."
+            ;;
+        -a|add)
+            if [[ $origin != $sender ]]; then
+                log "Don't do this in the channel; send me a query (and don't use the same password)."
+                return 1
+            fi
+            syntax "$1" 'password' '[[:print:]]+' || return 1
+            if user has admin; then
+                user update "$u" "$@"
+            else
+                user update "$u" "$1"
+            fi
+            local e=$?
+            if [[ $e == 0 ]]; then
+                log "User '$u' created."
+            else
+                log "Couldn't create user '$u' (return code: $?)."
+            fi
+            return $e
+            ;;
+        -d|del)
+            if ! user has admin && [[ $u != ${sender,,} ]]; then
+                log "You're not powerful enough; you can only delete yourself."
+                return 1
+            fi
+            rm -rf "$home"
+            local e=$?
+            if [[ $e == 0 ]]; then
+                log "User '$u' deleted."
+            else
+                log "Couldn't delete user '$u' (return code: $?)."
+            fi
+            return $e
+            ;;
+        -g|group)
+            if ! user has admin; then
+                log "You're not powerful enough to use this."
+                return 1
+            fi
+            a=$1
+            shift
+            case "$a" in
+                -a|add)
+                    syntax "$*" 'group(s)' '[^ ]*[ [:alnum:]_-]+' || return 1
+                    printf '%s\n' "$@" >> "$home/groups"
+                    sort -u "$home/groups" > "$home/groups.new"
+                    mv "$home/groups.new" "$home/groups"
+                    log "User '$u' added to groups."
+                    ;;
+                -d|del)
+                    syntax "$*" 'group(s)' '[ [:alnum:]_-]+' || return 1
+                    grep -vFf <(printf '%s\n' "$@") "$home/groups" \
+                        > "$home/groups.new"
+                    mv "$home/groups.new" "$home/groups"
+                    log "User '$u' removed from groups."
+                    ;;
+                ''|-l|list)
+                    local groups='global '
+                    [[ -f "$home/groups" ]] && groups+=$(<"$home/groups")
+                    log "'$u' is in groups: $(combine $groups)"
+                    ;;
+                *)
+                    log 'No such action.'
+                    ;;
+            esac
+            ;;
+        *)
+            log 'No such action.'
+            ;;
+    esac
+}
+

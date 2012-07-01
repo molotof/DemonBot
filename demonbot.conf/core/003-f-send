@@ -6,11 +6,11 @@
 #   command data
 send () {
     local IFS=' '
-    if [[ ${connection[1]} ]]; then
+    if [[ -p "$demonpit_in" ]]; then
         if [[ ${1:0:1} != ':' ]]; then
-            echo "${1^^} ${*:2}" >&${connection[1]}
+            echo "${1^^} ${*:2}" >&8
         else
-            echo "$1 ${2^^} ${*:3}" >&${connection[1]}
+            echo "$1 ${2^^} ${*:3}" >&8
         fi
     else
         log -c 'Not connected to server.'

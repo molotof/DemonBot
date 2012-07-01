@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Return whether argument is alphanumeric.
+#
+# Parameters:
+#   string
+# Return Codes:
+#   0   Is alphanumeric
+#   1   Is not alphanumeric
+is_alnum () {
+    [[ $1 =~ ^[[:alnum:]]$ ]]
+}

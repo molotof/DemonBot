@@ -1,0 +1,101 @@
+#!/bin/bash
+
+user () {
+    local h data group a=$1
+    if ! in_list "$a" identify has exists load unload; then
+        local name home a=$1 u=$2
+        if ! user exists "$u"; then
+            log -c "No such user: $name"
+            return 1
+        fi
+        shift
+    fi
+    shift
+    case "$a" in
+        -i|identify)
+            groups='global'
+            [[ $sender && $sender_mask ]] || return 1
+            if [[ ${users["$sender_mask"]} ]]; then
+                name=${users["$sender_mask"]}
+                home="$users_dir/$name"
+                groups=${users["$sender_mask:groups"]}
+                return 0
+            fi
+            for name in "$@" "$sender"; do
+                [[ -z $name ]] && continue
+                name=${name,,}
+                home="$users_dir/$name"
+                log -c "$home/masks"
+                if grep -qF "$sender_mask" "$home/masks" 2>/dev/null
+                then
+                    users["$sender_mask"]=$name
+                    [[ -f "$home/groups" ]] &&
+                        users["$sender_mask:groups"]=$(<"$home/groups")
+                    groups=${users["$sender_mask:groups"]}
+                    return 0
+                fi
+            done
+            name='unknown'
+            home="$users_dir/$name"
+            return 1
+            ;;
+        -h|has)
+            groups='global'
+            [[ -z $sender || -z $sender_mask ]] && return 1
+            user identify && groups="users ${users["$sender_mask:groups"]}"
+            [[ -z $1 ]] && set -- 'global'
+            for group in $groups; do
+                in_list "$group" 'root' "$@" &&
+                    return 0
+            done
+            return 1
+            ;;
+        -e|exists)
+            name=${1,,}
+            home="$users_dir/$name"
+            [[ -f "$home/login-key" ]]
+            ;;
+        -m|add_mask)
+            printf '%s\n' "$@" >> "$home/masks"
+            sort -u "$home/masks" > "$home/masks.new"
+            mv "$home/masks.new" "$home/masks"
+            ;;
+        -u|update)
+            if ! user exists "$u"; then
+                log -c "Creating user directory: $home"
+                mkdir -p "$home" || return 1
+            fi
+            if [[ $1 ]]; then
+                log -c "Setting password."
+                sha1sum <<< "$1" | cut -d' ' -f1 > "$home/login-key" ||
+                    return 1
+                shift
+                if [[ $1 ]]; then
+                    log -c "Setting groups."
+                    printf '%s\n' "$@" > "$home/groups" || return 1
+                fi
+            fi
+            ;;
+        -r|load)
+            log -c 'Parsing users file.'
+            users=()
+            if [[ ! -f "$users_file" ]]; then
+                log -c 'No users known.'
+                return 1
+            fi
+            while read -r h data; do
+                [[ $data ]] && users["$h"]=$data
+            done < "$users_file"
+            log -c 'Read list of known users from disk.'
+            ;;
+        -w|save)
+            log -c 'Writing users file.'
+            for h in "${!users[@]}"; do
+                echo $h ${users["$h"]}
+            done > "$users_file" || return 1
+            log -c 'Wrote list of known users to disk.'
+            ;;
+    esac
+    return 0
+}
+

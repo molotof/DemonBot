@@ -1,13 +1,15 @@
 #!/bin/bash
 
 # Connect to an IRC server and punt IRC messages.to a parser loop.
+# stdout: 9<>$demonbot_out
+# stderr: sent to logger as debug messages
 #
-# Parameters:
-#   host [port [connector]]
+# Uses Globals:
+#   host
+#   [port]
+#   [connector]
 connect () {
     while $next_host; do
-        exec 9<&-
-        exec 9<>"$demonbot_io"
         if [[ -z $host ]]; then
             log -c 'Missing host.'
             return 1
@@ -15,21 +17,18 @@ connect () {
         port=${port:-6667}
         connector=${connector:-tcp}
         con_bin=${connectors["$connector"]}
-        if ! in_list "$(cmd_type "$con_bin")" 'function' 'file'; then
-            log -c "$connector '$con_bin' isn't executable."
-            return 1
-        fi
-        log -c "Connecting to ${connector^^} host $host:$port."
         unset logged_in user_disconnect
-        coproc connection {
-            echo '!connect' >&9
-            $con_bin "$host" "$port" >&9 2> >(read_do log -d)
-            echo '!disconnect' >&9
-        }
-        parser_loop
+        rm -f "$demonbot_out" 2>/dev/null
+        mkfifo "$demonbot_out"
         exec 9<&-
-        [[ $user_disconnect || $reconnect_auto < 1 ]] &&
-            break
+        exec 9<>"$demonbot_out"
+        connection >&9 2> >(read_do log -d) &
+        connection_pid=$!
+        parser_loop <&9
+        unset connection_pid
+        exec 9<&-
+        safe_kill HUP
+        [[ $user_disconnect || $reconnect_auto < 1 ]] && break
         if [[ $hosts ]]; then
             log -c "Waiting $reconnect_secs seconds to reconnect."
             sleep $reconnect_secs

@@ -16,7 +16,7 @@ run_cmd () {
     shift $((OPTIND - 1))
     local cmd=${1,,}
     [[ $cmd =~ ^[[:alnum:]~_.-]+$ && ${commands["$cmd"]} ]] || return 1
-    if [[ $opt_p ]] && ! check_clearance ${commands["$cmd:groups"]}; then
+    if [[ $opt_p ]] && ! user has ${commands["$cmd:groups"]}; then
         log "You are not powerful enough to use this command."
         return 1
     fi

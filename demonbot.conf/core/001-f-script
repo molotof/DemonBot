@@ -1,0 +1,141 @@
+#!/bin/bash
+
+script () {
+    local opt OPTIND IFS=$oifs
+    while getopts up opt; do
+        declare "opt_$opt"=1
+    done
+    shift $((OPTIND - 1))
+    local dir='scripts' a=$1 s=$2
+    if [[ -z $a ]]; then
+        log -c 'No action specified.'
+        return 1
+    fi
+    if ! in_list "$a" -ua unload_all -ra reload_all -l list; then
+        [[ $s =~ '/' ]] && dir=${s%/*} s="${s##*/}"
+        s=${s#[[:digit:]]*-}
+        [[ -z $s ]] && s=$script_name
+        if [[ -z $s ]]; then
+            log -c "'${FUNCNAME[1]}' implies it wants to use script_name, but it's not set."
+            return 1
+        elif invalid_cname "$s"; then
+            log -c "Invalid characters in name: $s"
+            return 1
+        fi
+    fi
+    shift 2
+    case "$a" in
+        -l|load)
+            source_all "servers/$server/$dir" "$1"
+            [[ -z $loaded ]] && source_all "global/$dir" "$1"
+            local msg='Nothing loaded'
+            [[ $loaded ]] && msg="Loaded:$loaded"
+            [[ $skipped ]] && msg+="; skipped:$skipped"
+            log -c "$msg"
+            [[ $loaded && -z $skipped ]]
+            ;;
+        -p|load_pkg)
+            s+='.pkg'
+            [[ -z $1 ]] && set -- '*'
+            local root dep file
+            for root in "servers/$server" 'global'; do
+                log -c "Scanning '$root/$dir' for: $s"
+                for dep in "$@"; do
+                    log -c "$pkg: scanning for: $dep"
+                    unset dep_loaded
+                    while read -r file; do
+                        local fname=${file##*/}
+                        if invalid_cname "$fname"; then
+                            log -c "$s/$fname: invalid filename"
+                            return 1
+                        fi
+                        log -c "$s/$fname: sourcing"
+                        if ! . "$file"; then
+                            log -c "$s/$fname: error sourcing"
+                            return 1
+                        fi
+                        local dep_loaded=0
+                    done < <(paths_of "$root/$dir/$s" "$dep" "[0-9]*-$dep")
+                    if [[ -z $dep_loaded ]]; then
+                        log -c "$s/$dep:not found"
+                        break
+                    fi
+                done
+            done
+            [[ -z $dep_loaded ]] && log -c "$s: error loading package"
+            return ${dep_loaded:-1}
+            ;;
+        -u|unload)
+            local f d log_prefix="$dir/$s: " script_name=$s
+            if [[ ${loaded_scripts["$s"]} ]]; then
+                log -c 'unloading'
+                is_exec -e "_unload"
+                is_exec -e "_unload_$s"
+                if [[ ${loaded_scripts["$s:funcs"]} ]]; then
+                    for f in ${loaded_scripts["$s:funcs"]}; do
+                        local t=${f:0:1} f=${f:2} h=
+                        if [[ $f =~ '/' ]]; then
+                            local IFS='/'
+                            f=($f) IFS=$oifs
+                        fi
+                        register -u "$t" "$f" "$h"
+                    done
+                    unset loaded_scripts["$s:funcs"]
+                fi
+                unset loaded_scripts["$s"] loaded_scripts["$s:file"]
+            fi
+            if [[ ${loaded_scripts["$s:depof"]} ]]; then
+                for d in ${loaded_scripts["$s:depof"]}; do
+                    if [[ ${loaded_scripts["$d"]} ]]; then
+                        log -c "unloading depending parent: $d"
+                        $FUNCNAME unload "$d"
+                    fi
+                done
+                unset loaded_scripts["$s:depof"]
+            fi
+            if [[ ${loaded_scripts["$s:deps"]} ]]; then
+                for d in ${loaded_scripts["$s:deps"]}; do
+                    if [[ ${loaded_scripts["$d"]} ]]; then
+                        log -c "unloading dependency: $d"
+                        $FUNCNAME unload "$d"
+                    fi
+                done
+                unset loaded_scripts["$s:deps"]
+            fi
+            return 0
+            ;;
+        -r|reload)
+            if [[ ${loaded_scripts["$s"]} ]]; then
+                s=${loaded_scripts["$s"]}
+                $FUNCNAME unload "$s"
+            fi
+            $FUNCNAME load "$s"
+            ;;
+        -ua|unload_all)
+            for s in ${!loaded_scripts[@]}; do
+                [[ $s =~ ':' ]] || $FUNCNAME unload "$s"
+            done
+            return 0
+            ;;
+        -ra|reload_all)
+            for s in ${!loaded_scripts[@]}; do
+                [[ $s =~ ':' ]] || $FUNCNAME reload "$s"
+            done
+            return 0
+            ;;
+        -l|list)
+            for s in "${reload_scripts[@]}"; do
+                [[ $s =~ ':' ]] || echo "$s"
+            done
+            ;;
+        -i|info)
+            for s in ${!loaded_scripts[@]}; do
+                [[ $s =~ ':' ]] || combine '\t' "$s" \
+                    "${loaded_scripts["$s"]}" \
+                    "${loaded_scripts["$s:file"]}" \
+                    "${loaded_scripts["$s:funcs"]}"
+            done | sort
+            return 0
+            ;;
+    esac
+}

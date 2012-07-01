@@ -23,7 +23,7 @@ event () {
         run_cmd $opt_p $opt_b "$event" "$@" ||
             run_cmd $opt_p $opt_b unknown "$event" "$@"
         run_cmd $opt_p $opt_b all "$@"
-    elif [[ ${connection[1]} ]]; then
+    elif [[ -p "$demonbot_in" ]]; then
         if [[ ${1:0:1} == ':' ]]; then
             local prefix="$1 " event=${2^^} data=$3
         else
